@@ -86,15 +86,20 @@ class VoiceCog(commands.Cog):
 
             # Create database record
             print("Creating database record...")
-            voice_session = await create_voice_session(
-                session,
-                lobby_id=lobby.id,
-                channel_id=str(new_channel.id),
-                owner_id=str(member.id),
-                name=channel_name,
-                user_limit=lobby.default_user_limit,
-            )
-            print(f"Database record created: {voice_session}")
+            try:
+                voice_session = await create_voice_session(
+                    session,
+                    lobby_id=lobby.id,
+                    channel_id=str(new_channel.id),
+                    owner_id=str(member.id),
+                    name=channel_name,
+                    user_limit=lobby.default_user_limit,
+                )
+                print(f"Database record created: {voice_session}")
+            except Exception as e:
+                print(f"Error creating database record: {e}")
+                await new_channel.delete()
+                raise
 
             # Set text chat permissions: only owner can read messages
             await new_channel.set_permissions(
