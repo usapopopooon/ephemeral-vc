@@ -74,7 +74,7 @@ class VoiceCog(commands.Cog):
             print(f"Category: {category}")
 
             # Create voice channel
-            channel_name = "new-channel"
+            channel_name = f"{member.display_name}'s channel"
             print(f"Creating voice channel: {channel_name}")
             new_channel = await guild.create_voice_channel(
                 name=channel_name,
