@@ -52,9 +52,12 @@ class VoiceCog(commands.Cog):
         self, member: discord.Member, channel: discord.VoiceChannel
     ) -> None:
         """Handle a member joining a lobby channel."""
+        print(f"_handle_lobby_join called: {member} joined {channel.name} (ID: {channel.id})")
         async with async_session() as session:
             lobby = await get_lobby_by_channel_id(session, str(channel.id))
+            print(f"Lobby lookup result: {lobby}")
             if not lobby:
+                print(f"Channel {channel.id} is not a registered lobby")
                 return  # Not a lobby channel
 
             guild = member.guild
