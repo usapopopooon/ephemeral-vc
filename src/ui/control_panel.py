@@ -483,7 +483,7 @@ class ControlPanelView(discord.ui.View):
 
         return True
 
-    # Row 0: チャンネル設定
+    # Row 0: チャンネル設定①
     @discord.ui.button(
         label="名前変更",
         emoji="🏷️",
@@ -510,12 +510,13 @@ class ControlPanelView(discord.ui.View):
         """Handle limit button click."""
         await interaction.response.send_modal(UserLimitModal(self.session_id))
 
+    # Row 1: チャンネル設定②
     @discord.ui.button(
         label="ビットレート",
         emoji="🔊",
         style=discord.ButtonStyle.secondary,
         custom_id="bitrate_button",
-        row=0,
+        row=1,
     )
     async def bitrate_button(
         self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
@@ -532,7 +533,7 @@ class ControlPanelView(discord.ui.View):
         emoji="🌏",
         style=discord.ButtonStyle.secondary,
         custom_id="region_button",
-        row=0,
+        row=1,
     )
     async def region_button(
         self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
@@ -542,13 +543,13 @@ class ControlPanelView(discord.ui.View):
             "リージョンを選択:", view=RegionSelectView(), ephemeral=True
         )
 
-    # Row 1: 状態トグル
+    # Row 2: 状態トグル
     @discord.ui.button(
         label="ロック",
         emoji="🔒",
         style=discord.ButtonStyle.secondary,
         custom_id="lock_button",
-        row=1,
+        row=2,
     )
     async def lock_button(
         self, interaction: discord.Interaction, button: discord.ui.Button[Any]
@@ -605,7 +606,7 @@ class ControlPanelView(discord.ui.View):
         emoji="🙈",
         style=discord.ButtonStyle.secondary,
         custom_id="hide_button",
-        row=1,
+        row=2,
     )
     async def hide_button(
         self, interaction: discord.Interaction, button: discord.ui.Button[Any]
@@ -657,7 +658,7 @@ class ControlPanelView(discord.ui.View):
         emoji="🔞",
         style=discord.ButtonStyle.secondary,
         custom_id="nsfw_button",
-        row=1,
+        row=2,
     )
     async def nsfw_button(
         self, interaction: discord.Interaction, button: discord.ui.Button[Any]
@@ -682,13 +683,13 @@ class ControlPanelView(discord.ui.View):
             f"チャンネルの **{status}** しました。", ephemeral=True
         )
 
-    # Row 2: メンバー管理
+    # Row 3: メンバー管理①
     @discord.ui.button(
         label="譲渡",
         emoji="👑",
         style=discord.ButtonStyle.secondary,
         custom_id="transfer_button",
-        row=2,
+        row=3,
     )
     async def transfer_button(
         self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
@@ -715,7 +716,7 @@ class ControlPanelView(discord.ui.View):
         emoji="👟",
         style=discord.ButtonStyle.secondary,
         custom_id="kick_button",
-        row=2,
+        row=3,
     )
     async def kick_button(
         self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
@@ -725,12 +726,13 @@ class ControlPanelView(discord.ui.View):
             "キックするユーザーを選択:", view=KickSelectView(), ephemeral=True
         )
 
+    # Row 4: メンバー管理②
     @discord.ui.button(
         label="ブロック",
         emoji="🚫",
         style=discord.ButtonStyle.secondary,
         custom_id="block_button",
-        row=2,
+        row=4,
     )
     async def block_button(
         self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
@@ -745,7 +747,7 @@ class ControlPanelView(discord.ui.View):
         emoji="✅",
         style=discord.ButtonStyle.success,
         custom_id="allow_button",
-        row=2,
+        row=4,
     )
     async def allow_button(
         self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
