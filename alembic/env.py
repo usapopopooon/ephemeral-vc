@@ -1,10 +1,11 @@
 """Alembic environment configuration."""
 
+import os
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
+from alembic import context
 from src.database.models import Base
 
 config = context.config
@@ -15,9 +16,20 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _get_url() -> str:
+    """Get database URL, preferring DATABASE_URL env var."""
+    url = os.environ.get("DATABASE_URL", "")
+    if url:
+        # Convert async/Heroku URLs to sync psycopg2 format
+        url = url.replace("postgresql+asyncpg://", "postgresql://")
+        url = url.replace("postgres://", "postgresql://")
+        return url
+    return config.get_main_option("sqlalchemy.url", "sqlite:///data/ephemeral_vc.db")
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
+    url = _get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -31,11 +43,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_engine(_get_url(), poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
