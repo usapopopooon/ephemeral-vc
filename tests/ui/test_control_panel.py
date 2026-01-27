@@ -10,6 +10,7 @@ from src.ui.control_panel import (
     ControlPanelView,
     RenameModal,
     TransferSelectMenu,
+    TransferSelectView,
     UserLimitModal,
     create_control_panel_embed,
 )
@@ -574,3 +575,73 @@ class TestTransferSelectMenu:
 
             msg = interaction.response.edit_message.call_args[1]["content"]
             assert "セッション" in msg
+
+
+# ===========================================================================
+# TransferSelectView テスト
+# ===========================================================================
+
+
+class TestTransferSelectView:
+    """Tests for TransferSelectView member filtering."""
+
+    async def test_excludes_bot_members(self) -> None:
+        """Bot ユーザーが候補から除外される。"""
+        human = MagicMock(spec=discord.Member)
+        human.id = 2
+        human.bot = False
+        human.display_name = "Human"
+
+        bot_member = MagicMock(spec=discord.Member)
+        bot_member.id = 99
+        bot_member.bot = True
+        bot_member.display_name = "Bot"
+
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.members = [human, bot_member]
+
+        view = TransferSelectView(channel, owner_id=1)
+        # セレクトメニューが1つ追加される (Bot は除外)
+        assert len(view.children) == 1
+        select_menu = view.children[0]
+        assert isinstance(select_menu, TransferSelectMenu)
+        # Bot は選択肢に含まれない
+        assert len(select_menu.options) == 1
+        assert select_menu.options[0].value == "2"
+
+    async def test_excludes_owner(self) -> None:
+        """オーナー自身が候補から除外される。"""
+        owner = MagicMock(spec=discord.Member)
+        owner.id = 1
+        owner.bot = False
+        owner.display_name = "Owner"
+
+        other = MagicMock(spec=discord.Member)
+        other.id = 2
+        other.bot = False
+        other.display_name = "Other"
+
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.members = [owner, other]
+
+        view = TransferSelectView(channel, owner_id=1)
+        assert len(view.children) == 1
+        select_menu = view.children[0]
+        assert len(select_menu.options) == 1
+        assert select_menu.options[0].value == "2"
+
+    async def test_empty_when_only_bots_and_owner(self) -> None:
+        """オーナーと Bot しかいない場合、セレクトメニューは追加されない。"""
+        owner = MagicMock(spec=discord.Member)
+        owner.id = 1
+        owner.bot = False
+
+        bot_member = MagicMock(spec=discord.Member)
+        bot_member.id = 99
+        bot_member.bot = True
+
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.members = [owner, bot_member]
+
+        view = TransferSelectView(channel, owner_id=1)
+        assert len(view.children) == 0

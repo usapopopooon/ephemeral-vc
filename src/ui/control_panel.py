@@ -207,9 +207,9 @@ class TransferSelectView(discord.ui.View):
         self, channel: discord.VoiceChannel, owner_id: int
     ) -> None:
         super().__init__(timeout=60)
-        # オーナー自身を除外した候補リストを作成
+        # オーナー自身と Bot を除外した候補リストを作成
         members = [
-            m for m in channel.members if m.id != owner_id
+            m for m in channel.members if m.id != owner_id and not m.bot
         ]
         if not members:
             return  # 誰もいなければセレクトメニューを追加しない
