@@ -13,10 +13,11 @@ def _make_cog() -> VoiceCog:
     return VoiceCog(bot)
 
 
-def _make_member(user_id: int) -> MagicMock:
+def _make_member(user_id: int, *, bot: bool = False) -> MagicMock:
     """Create a mock discord.Member."""
     member = MagicMock(spec=discord.Member)
     member.id = user_id
+    member.bot = bot
     return member
 
 
