@@ -150,23 +150,49 @@ class UserLimitModal(discord.ui.Modal, title="Change User Limit"):
 
 
 class TransferSelectView(discord.ui.View):
-    """Ephemeral view with user select for transferring ownership."""
+    """Ephemeral view with select for transferring ownership."""
 
-    def __init__(self) -> None:
-        super().__init__(timeout=60)
-
-    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select new owner...")
-    async def select_user(
-        self, interaction: discord.Interaction, select: discord.ui.UserSelect[Any]
+    def __init__(
+        self, channel: discord.VoiceChannel, owner_id: int
     ) -> None:
-        """Handle user selection."""
-        new_owner = select.values[0]
-        channel = interaction.channel
+        super().__init__(timeout=60)
+        members = [
+            m for m in channel.members if m.id != owner_id
+        ]
+        if not members:
+            return
+        options = [
+            discord.SelectOption(
+                label=m.display_name, value=str(m.id)
+            )
+            for m in members[:25]
+        ]
+        self.add_item(TransferSelectMenu(options))
 
+
+class TransferSelectMenu(discord.ui.Select[Any]):
+    """Transfer ownership select menu."""
+
+    def __init__(self, options: list[discord.SelectOption]) -> None:
+        super().__init__(
+            placeholder="Select new owner...", options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        """Handle selection."""
+        channel = interaction.channel
         if not isinstance(channel, discord.VoiceChannel):
             return
 
-        if not isinstance(new_owner, discord.Member):
+        guild = interaction.guild
+        if not guild:
+            return
+
+        new_owner = guild.get_member(int(self.values[0]))
+        if not new_owner:
+            await interaction.response.edit_message(
+                content="Member not found.", view=None
+            )
             return
 
         async with async_session() as db_session:
@@ -179,19 +205,24 @@ class TransferSelectView(discord.ui.View):
                 )
                 return
 
-            # Update text chat permissions
             if isinstance(interaction.user, discord.Member):
                 await channel.set_permissions(
-                    interaction.user, read_message_history=None
+                    interaction.user,
+                    read_message_history=None,
                 )
-            await channel.set_permissions(new_owner, read_message_history=True)
+            await channel.set_permissions(
+                new_owner, read_message_history=True
+            )
 
             await update_voice_session(
-                db_session, voice_session, owner_id=str(new_owner.id)
+                db_session,
+                voice_session,
+                owner_id=str(new_owner.id),
             )
 
         await interaction.response.edit_message(
-            content=f"Ownership transferred to {new_owner.mention}.", view=None
+            content=f"Ownership transferred to {new_owner.mention}.",
+            view=None,
         )
 
 
@@ -549,8 +580,20 @@ class ControlPanelView(discord.ui.View):
         self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
     ) -> None:
         """Handle transfer button click."""
+        channel = interaction.channel
+        if not isinstance(channel, discord.VoiceChannel):
+            return
+
+        view = TransferSelectView(channel, interaction.user.id)
+        if not view.children:
+            await interaction.response.send_message(
+                "No other members in this channel.",
+                ephemeral=True,
+            )
+            return
+
         await interaction.response.send_message(
-            "Select new owner:", view=TransferSelectView(), ephemeral=True
+            "Select new owner:", view=view, ephemeral=True
         )
 
     @discord.ui.button(
