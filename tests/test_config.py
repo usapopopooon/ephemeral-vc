@@ -1,6 +1,11 @@
 """Tests for configuration settings."""
 
-from src.config import Settings
+import os
+
+# Set dummy token before importing Settings to avoid module-level error
+os.environ.setdefault("DISCORD_TOKEN", "test-token")
+
+from src.config import Settings  # noqa: E402
 
 
 class TestAsyncDatabaseUrl:
