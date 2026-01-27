@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import discord
 from discord.ext import commands, tasks
@@ -98,7 +98,7 @@ class HealthCog(commands.Cog):
         embed = discord.Embed(
             title=f"Heartbeat — {status}",
             color=color,
-            timestamp=datetime.now(_JST),
+            timestamp=datetime.now(UTC),
         )
         embed.add_field(name="Uptime", value=uptime_str, inline=True)
         embed.add_field(name="Latency", value=f"{latency_ms}ms", inline=True)
