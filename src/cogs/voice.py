@@ -163,14 +163,6 @@ class VoiceCog(commands.Cog):
                 await new_channel.delete()
                 raise
 
-            # Set text chat permissions: only owner can read
-            await new_channel.set_permissions(
-                guild.default_role, read_message_history=False
-            )
-            await new_channel.set_permissions(
-                member, read_message_history=True
-            )
-
             # Move member to new channel
             try:
                 await member.move_to(new_channel)
@@ -244,15 +236,6 @@ class VoiceCog(commands.Cog):
         await update_voice_session(
             session, voice_session, owner_id=str(new_owner.id)
         )
-
-        # Update text chat permissions
-        with contextlib.suppress(discord.HTTPException):
-            await channel.set_permissions(
-                old_owner, read_message_history=None
-            )
-            await channel.set_permissions(
-                new_owner, read_message_history=True
-            )
 
         # Update control panel embed
         embed = create_control_panel_embed(voice_session, new_owner)
