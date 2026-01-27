@@ -143,25 +143,6 @@ class TestVoiceSessionModel:
 
         assert session.user_limit == 0
 
-    async def test_default_text_channel_id(
-        self, db_session: AsyncSession
-    ) -> None:
-        """Test text_channel_id defaults to None."""
-        lobby = Lobby(guild_id="123", lobby_channel_id="456")
-        db_session.add(lobby)
-        await db_session.commit()
-
-        session = VoiceSession(
-            lobby_id=lobby.id,
-            channel_id="789",
-            owner_id="111",
-            name="Test",
-        )
-        db_session.add(session)
-        await db_session.commit()
-
-        assert session.text_channel_id is None
-
     async def test_created_at_auto_set(
         self, db_session: AsyncSession
     ) -> None:

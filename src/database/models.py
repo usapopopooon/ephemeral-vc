@@ -53,9 +53,6 @@ class VoiceSession(Base):
     user_limit: Mapped[int] = mapped_column(Integer, default=0)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
-    text_channel_id: Mapped[str | None] = mapped_column(
-        String, nullable=True
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

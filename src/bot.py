@@ -39,9 +39,6 @@ class EphemeralVCBot(commands.Bot):
                     voice_session.id,
                     voice_session.is_locked,
                     voice_session.is_hidden,
-                    has_text_channel=bool(
-                        voice_session.text_channel_id
-                    ),
                 )
                 self.add_view(view)
 

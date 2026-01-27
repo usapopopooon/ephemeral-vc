@@ -1,13 +1,9 @@
 """Database service functions with side effects."""
 
-from typing import Any
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models import Lobby, VoiceSession
-
-_UNSET: Any = object()
 
 
 async def get_lobby_by_channel_id(
@@ -166,7 +162,6 @@ async def update_voice_session(
     is_locked: bool | None = None,
     is_hidden: bool | None = None,
     owner_id: str | None = None,
-    text_channel_id: str | None = _UNSET,
 ) -> VoiceSession:
     """Update a voice session.
 
@@ -178,7 +173,6 @@ async def update_voice_session(
         is_locked: New lock state
         is_hidden: New hidden state
         owner_id: New owner ID
-        text_channel_id: New text channel ID (None to clear)
 
     Returns:
         The updated VoiceSession
@@ -193,8 +187,6 @@ async def update_voice_session(
         voice_session.is_hidden = is_hidden
     if owner_id is not None:
         voice_session.owner_id = owner_id
-    if text_channel_id is not _UNSET:
-        voice_session.text_channel_id = text_channel_id
 
     await session.commit()
     await session.refresh(voice_session)

@@ -288,7 +288,11 @@ class BlockSelectView(discord.ui.View):
 
         await channel.set_permissions(user_to_block, connect=False)
 
-        if user_to_block.voice and user_to_block.voice.channel == channel:
+        if (
+            isinstance(user_to_block, discord.Member)
+            and user_to_block.voice
+            and user_to_block.voice.channel == channel
+        ):
             await user_to_block.move_to(None)
 
         await interaction.response.edit_message(
@@ -321,53 +325,6 @@ class AllowSelectView(discord.ui.View):
         await channel.set_permissions(user_to_allow, connect=True)
         await interaction.response.edit_message(
             content=f"{user_to_allow.mention} を許可しました。", view=None
-        )
-
-
-class MemberManageView(discord.ui.View):
-    """Ephemeral view with kick/block/allow buttons."""
-
-    def __init__(self) -> None:
-        super().__init__(timeout=60)
-
-    @discord.ui.button(label="キック", emoji="👟")
-    async def kick_btn(
-        self,
-        interaction: discord.Interaction,
-        _button: discord.ui.Button[Any],
-    ) -> None:
-        """Open kick user select."""
-        await interaction.response.edit_message(
-            content="キックするユーザーを選択:",
-            view=KickSelectView(),
-        )
-
-    @discord.ui.button(label="ブロック", emoji="🚫")
-    async def block_btn(
-        self,
-        interaction: discord.Interaction,
-        _button: discord.ui.Button[Any],
-    ) -> None:
-        """Open block user select."""
-        await interaction.response.edit_message(
-            content="ブロックするユーザーを選択:",
-            view=BlockSelectView(),
-        )
-
-    @discord.ui.button(
-        label="許可",
-        emoji="✅",
-        style=discord.ButtonStyle.success,
-    )
-    async def allow_btn(
-        self,
-        interaction: discord.Interaction,
-        _button: discord.ui.Button[Any],
-    ) -> None:
-        """Open allow user select."""
-        await interaction.response.edit_message(
-            content="許可するユーザーを選択:",
-            view=AllowSelectView(),
         )
 
 
@@ -490,7 +447,6 @@ class ControlPanelView(discord.ui.View):
         is_locked: bool = False,
         is_hidden: bool = False,
         is_nsfw: bool = False,
-        has_text_channel: bool = False,
     ) -> None:
         super().__init__(timeout=None)
         self.session_id = session_id
@@ -505,9 +461,6 @@ class ControlPanelView(discord.ui.View):
 
         if is_nsfw:
             self.nsfw_button.label = "制限解除"
-
-        if has_text_channel:
-            self.text_channel_button.label = "テキスト削除"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Check if the user is the owner before allowing any interaction."""
@@ -530,7 +483,7 @@ class ControlPanelView(discord.ui.View):
 
         return True
 
-    # Row 0: 名前変更, 人数制限
+    # Row 0: チャンネル設定①
     @discord.ui.button(
         label="名前変更",
         emoji="🏷️",
@@ -546,7 +499,7 @@ class ControlPanelView(discord.ui.View):
 
     @discord.ui.button(
         label="人数制限",
-        emoji="🔢",
+        emoji="👥",
         style=discord.ButtonStyle.secondary,
         custom_id="limit_button",
         row=0,
@@ -557,7 +510,7 @@ class ControlPanelView(discord.ui.View):
         """Handle limit button click."""
         await interaction.response.send_modal(UserLimitModal(self.session_id))
 
-    # Row 1: ビットレート, リージョン
+    # Row 1: チャンネル設定②
     @discord.ui.button(
         label="ビットレート",
         emoji="🔊",
@@ -590,88 +543,7 @@ class ControlPanelView(discord.ui.View):
             "リージョンを選択:", view=RegionSelectView(), ephemeral=True
         )
 
-    # Row 2: テキスト, ロック
-    @discord.ui.button(
-        label="テキスト",
-        emoji="💬",
-        style=discord.ButtonStyle.secondary,
-        custom_id="text_channel_button",
-        row=2,
-    )
-    async def text_channel_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button[Any],
-    ) -> None:
-        """Handle text channel create/delete toggle."""
-        channel = interaction.channel
-        if (
-            not isinstance(channel, discord.VoiceChannel)
-            or not interaction.guild
-        ):
-            return
-
-        async with async_session() as db_session:
-            voice_session = await get_voice_session(
-                db_session, str(interaction.channel_id)
-            )
-            if not voice_session:
-                return
-
-            if voice_session.text_channel_id:
-                # Delete existing text channel
-                tc = interaction.guild.get_channel(
-                    int(voice_session.text_channel_id)
-                )
-                if tc:
-                    await tc.delete(
-                        reason="Ephemeral VC: テキストチャンネル削除"
-                    )
-                await update_voice_session(
-                    db_session,
-                    voice_session,
-                    text_channel_id=None,
-                )
-                button.label = "テキスト"
-                await interaction.response.edit_message(view=self)
-                await interaction.followup.send(
-                    "テキストチャンネルを削除しました。",
-                    ephemeral=True,
-                )
-            else:
-                # Create text channel
-                overwrites: dict[
-                    discord.Role | discord.Member | discord.Object,
-                    discord.PermissionOverwrite,
-                ] = {
-                    interaction.guild.default_role: (
-                        discord.PermissionOverwrite(
-                            view_channel=False
-                        )
-                    ),
-                }
-                for m in channel.members:
-                    overwrites[m] = discord.PermissionOverwrite(
-                        view_channel=True
-                    )
-
-                tc = await interaction.guild.create_text_channel(
-                    name=channel.name,
-                    category=channel.category,
-                    overwrites=overwrites,
-                )
-                await update_voice_session(
-                    db_session,
-                    voice_session,
-                    text_channel_id=str(tc.id),
-                )
-                button.label = "テキスト削除"
-                await interaction.response.edit_message(view=self)
-                await interaction.followup.send(
-                    f"{tc.mention} を作成しました。",
-                    ephemeral=True,
-                )
-
+    # Row 2: 状態トグル
     @discord.ui.button(
         label="ロック",
         emoji="🔒",
@@ -734,7 +606,7 @@ class ControlPanelView(discord.ui.View):
         emoji="🙈",
         style=discord.ButtonStyle.secondary,
         custom_id="hide_button",
-        row=3,
+        row=2,
     )
     async def hide_button(
         self, interaction: discord.Interaction, button: discord.ui.Button[Any]
@@ -786,7 +658,7 @@ class ControlPanelView(discord.ui.View):
         emoji="🔞",
         style=discord.ButtonStyle.secondary,
         custom_id="nsfw_button",
-        row=3,
+        row=2,
     )
     async def nsfw_button(
         self, interaction: discord.Interaction, button: discord.ui.Button[Any]
@@ -811,13 +683,13 @@ class ControlPanelView(discord.ui.View):
             f"チャンネルの **{status}** しました。", ephemeral=True
         )
 
-    # Row 4: 譲渡, メンバー管理
+    # Row 3: メンバー管理①
     @discord.ui.button(
         label="譲渡",
         emoji="👑",
         style=discord.ButtonStyle.secondary,
         custom_id="transfer_button",
-        row=4,
+        row=3,
     )
     async def transfer_button(
         self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
@@ -840,20 +712,47 @@ class ControlPanelView(discord.ui.View):
         )
 
     @discord.ui.button(
-        label="メンバー管理",
-        emoji="👥",
+        label="キック",
+        emoji="👟",
         style=discord.ButtonStyle.secondary,
-        custom_id="member_manage_button",
+        custom_id="kick_button",
+        row=3,
+    )
+    async def kick_button(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
+    ) -> None:
+        """Handle kick button click."""
+        await interaction.response.send_message(
+            "キックするユーザーを選択:", view=KickSelectView(), ephemeral=True
+        )
+
+    # Row 4: メンバー管理②
+    @discord.ui.button(
+        label="ブロック",
+        emoji="🚫",
+        style=discord.ButtonStyle.secondary,
+        custom_id="block_button",
         row=4,
     )
-    async def member_manage_button(
-        self,
-        interaction: discord.Interaction,
-        _button: discord.ui.Button[Any],
+    async def block_button(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
     ) -> None:
-        """Handle member management button click."""
+        """Handle block button click."""
         await interaction.response.send_message(
-            "操作を選択:",
-            view=MemberManageView(),
-            ephemeral=True,
+            "ブロックするユーザーを選択:", view=BlockSelectView(), ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="許可",
+        emoji="✅",
+        style=discord.ButtonStyle.success,
+        custom_id="allow_button",
+        row=4,
+    )
+    async def allow_button(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
+    ) -> None:
+        """Handle allow button click."""
+        await interaction.response.send_message(
+            "許可するユーザーを選択:", view=AllowSelectView(), ephemeral=True
         )
