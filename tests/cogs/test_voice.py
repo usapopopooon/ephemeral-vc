@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
+from discord import app_commands
 
 from src.cogs.voice import VoiceCog
 
@@ -795,3 +796,160 @@ class TestOnVoiceStateUpdate:
 
         cog._handle_lobby_join.assert_not_awaited()
         cog._handle_channel_leave.assert_not_awaited()
+
+
+# ===========================================================================
+# /panel コマンドテスト
+# ===========================================================================
+
+
+def _make_interaction(
+    user_id: int,
+    channel: MagicMock | None = None,
+) -> MagicMock:
+    """Create a mock discord.Interaction for slash commands."""
+    interaction = MagicMock(spec=discord.Interaction)
+    interaction.user = _make_member(user_id)
+    interaction.channel = channel
+    interaction.channel_id = channel.id if channel else None
+    interaction.response = MagicMock()
+    interaction.response.send_message = AsyncMock()
+    return interaction
+
+
+class TestPanelCommand:
+    """Tests for /panel slash command."""
+
+    async def test_panel_reposts_control_panel(self) -> None:
+        """正常系: 旧パネル削除 + 新パネル送信 + ピン留め。"""
+        cog = _make_cog()
+        channel = _make_channel(100)
+        channel.send = AsyncMock(return_value=MagicMock(pin=AsyncMock()))
+        interaction = _make_interaction(1, channel)
+
+        voice_session = _make_voice_session(channel_id="100", owner_id="1")
+        old_panel = MagicMock()
+        old_panel.delete = AsyncMock()
+
+        mock_factory, mock_session = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ), patch(
+            "src.cogs.voice.is_owner",
+            return_value=True,
+        ), patch(
+            "src.cogs.voice.create_control_panel_embed",
+            return_value=MagicMock(),
+        ), patch(
+            "src.cogs.voice.ControlPanelView",
+            return_value=MagicMock(),
+        ):
+            cog._find_panel_message = AsyncMock(return_value=old_panel)
+            await cog.panel.callback(cog, interaction)
+
+            # 旧パネルが削除される
+            old_panel.delete.assert_awaited_once()
+            # 新パネルが送信される
+            channel.send.assert_awaited_once()
+            # 新パネルがピン留めされる
+            channel.send.return_value.pin.assert_awaited_once()
+            # ephemeral で応答
+            interaction.response.send_message.assert_awaited_once()
+            call_kwargs = interaction.response.send_message.call_args[1]
+            assert call_kwargs["ephemeral"] is True
+
+    async def test_panel_rejects_non_owner(self) -> None:
+        """オーナー以外は拒否される。"""
+        cog = _make_cog()
+        channel = _make_channel(100)
+        interaction = _make_interaction(2, channel)
+
+        voice_session = _make_voice_session(channel_id="100", owner_id="1")
+
+        mock_factory, _mock_session = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ), patch(
+            "src.cogs.voice.is_owner",
+            return_value=False,
+        ):
+            await cog.panel.callback(cog, interaction)
+
+            interaction.response.send_message.assert_awaited_once()
+            msg = interaction.response.send_message.call_args[0][0]
+            assert "オーナー" in msg
+
+    async def test_panel_rejects_non_voice_channel(self) -> None:
+        """VC 外で使用すると拒否される。"""
+        cog = _make_cog()
+        # TextChannel (VoiceChannel ではない)
+        text_channel = MagicMock(spec=discord.TextChannel)
+        text_channel.id = 100
+        interaction = _make_interaction(1, text_channel)
+
+        await cog.panel.callback(cog, interaction)
+
+        interaction.response.send_message.assert_awaited_once()
+        msg = interaction.response.send_message.call_args[0][0]
+        assert "一時 VC" in msg
+
+    async def test_panel_rejects_no_session(self) -> None:
+        """セッションが見つからない場合は拒否される。"""
+        cog = _make_cog()
+        channel = _make_channel(100)
+        interaction = _make_interaction(1, channel)
+
+        mock_factory, _mock_session = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            await cog.panel.callback(cog, interaction)
+
+            interaction.response.send_message.assert_awaited_once()
+            msg = interaction.response.send_message.call_args[0][0]
+            assert "見つかりません" in msg
+
+
+# ===========================================================================
+# cog_app_command_error テスト
+# ===========================================================================
+
+
+class TestCogAppCommandError:
+    """Tests for cog_app_command_error handler."""
+
+    async def test_cooldown_sends_message(self) -> None:
+        """クールダウン中は残り秒数を通知する。"""
+        cog = _make_cog()
+        interaction = _make_interaction(1)
+
+        error = app_commands.CommandOnCooldown(
+            app_commands.Cooldown(1, 30), 15.0
+        )
+        await cog.cog_app_command_error(interaction, error)
+
+        interaction.response.send_message.assert_awaited_once()
+        msg = interaction.response.send_message.call_args[0][0]
+        assert "15" in msg
+        assert interaction.response.send_message.call_args[1]["ephemeral"] is True
+
+    async def test_other_error_reraised(self) -> None:
+        """クールダウン以外のエラーは再送出される。"""
+        cog = _make_cog()
+        interaction = _make_interaction(1)
+
+        error = app_commands.AppCommandError("something broke")
+        try:
+            await cog.cog_app_command_error(interaction, error)
+            raised = False
+        except app_commands.AppCommandError:
+            raised = True
+
+        assert raised
+        interaction.response.send_message.assert_not_awaited()

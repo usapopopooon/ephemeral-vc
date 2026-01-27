@@ -18,9 +18,11 @@ import contextlib
 import time
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.permissions import is_owner
 from src.database.engine import async_session
 from src.database.models import VoiceSession
 from src.services.db_service import (
@@ -397,6 +399,84 @@ class VoiceCog(commands.Cog):
                 f"オーナーが退出したため、"
                 f"{new_owner.mention} に引き継ぎました。"
             )
+
+
+    # ==========================================================================
+    # スラッシュコマンド
+    # ==========================================================================
+
+    @app_commands.command(
+        name="panel",
+        description="コントロールパネルを再投稿します",
+    )
+    @app_commands.checks.cooldown(1, 30)
+    async def panel(self, interaction: discord.Interaction) -> None:
+        """コントロールパネルの Embed + ボタンを再投稿するスラッシュコマンド。
+
+        旧パネルメッセージを削除し、新しいパネルを送信してピン留めする。
+        オーナーのみ実行可能。
+        """
+        channel = interaction.channel
+        if not isinstance(channel, discord.VoiceChannel):
+            await interaction.response.send_message(
+                "一時 VC 内で使用してください。", ephemeral=True
+            )
+            return
+
+        async with async_session() as session:
+            voice_session = await get_voice_session(
+                session, str(channel.id)
+            )
+            if not voice_session:
+                await interaction.response.send_message(
+                    "一時 VC が見つかりません。", ephemeral=True
+                )
+                return
+
+            if not is_owner(voice_session.owner_id, interaction.user.id):
+                await interaction.response.send_message(
+                    "チャンネルオーナーのみ使用できます。", ephemeral=True
+                )
+                return
+
+            # 旧パネルメッセージを削除
+            old_panel = await self._find_panel_message(channel)
+            if old_panel:
+                with contextlib.suppress(discord.HTTPException):
+                    await old_panel.delete()
+
+            # 新しいコントロールパネルを作成・送信
+            owner = interaction.user
+            assert isinstance(owner, discord.Member)
+            embed = create_control_panel_embed(voice_session, owner)
+            view = ControlPanelView(
+                voice_session.id,
+                voice_session.is_locked,
+                voice_session.is_hidden,
+            )
+            self.bot.add_view(view)
+            panel_msg = await channel.send(embed=embed, view=view)
+
+            with contextlib.suppress(discord.HTTPException):
+                await panel_msg.pin()
+
+            await interaction.response.send_message(
+                "コントロールパネルを再投稿しました。", ephemeral=True
+            )
+
+    async def cog_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
+        """スラッシュコマンドのエラーハンドラ。クールダウン中の通知を行う。"""
+        if isinstance(error, app_commands.CommandOnCooldown):
+            await interaction.response.send_message(
+                f"クールダウン中です。{error.retry_after:.0f}秒後に再実行できます。",
+                ephemeral=True,
+            )
+            return
+        raise error
 
 
 async def setup(bot: commands.Bot) -> None:
