@@ -79,6 +79,10 @@ class TestLobbyAdd:
 
         mock_factory, mock_session = _mock_async_session()
         with patch("src.cogs.admin.async_session", mock_factory), patch(
+            "src.cogs.admin.get_lobbies_by_guild",
+            new_callable=AsyncMock,
+            return_value=[],
+        ), patch(
             "src.cogs.admin.create_lobby", new_callable=AsyncMock
         ) as mock_create:
             await cog.lobby_add.callback(cog, interaction)
@@ -123,7 +127,13 @@ class TestLobbyAdd:
             )
         )
 
-        await cog.lobby_add.callback(cog, interaction)
+        mock_factory, _mock_session = _mock_async_session()
+        with patch("src.cogs.admin.async_session", mock_factory), patch(
+            "src.cogs.admin.get_lobbies_by_guild",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            await cog.lobby_add.callback(cog, interaction)
 
         interaction.response.send_message.assert_awaited_once()
         msg = interaction.response.send_message.call_args[0][0]
@@ -140,8 +150,41 @@ class TestLobbyAdd:
             )
         )
 
-        with patch(
+        mock_factory, _mock_session = _mock_async_session()
+        with patch("src.cogs.admin.async_session", mock_factory), patch(
+            "src.cogs.admin.get_lobbies_by_guild",
+            new_callable=AsyncMock,
+            return_value=[],
+        ), patch(
             "src.cogs.admin.create_lobby", new_callable=AsyncMock
         ) as mock_create:
             await cog.lobby_add.callback(cog, interaction)
             mock_create.assert_not_awaited()
+
+    async def test_rejects_duplicate_lobby(self) -> None:
+        """既にロビーが存在するサーバーでは作成を拒否する。"""
+        cog = _make_cog()
+        interaction = _make_interaction()
+
+        existing_lobby = MagicMock()
+        existing_lobby.id = 1
+
+        mock_factory, _mock_session = _mock_async_session()
+        with patch("src.cogs.admin.async_session", mock_factory), patch(
+            "src.cogs.admin.get_lobbies_by_guild",
+            new_callable=AsyncMock,
+            return_value=[existing_lobby],
+        ), patch(
+            "src.cogs.admin.create_lobby", new_callable=AsyncMock
+        ) as mock_create:
+            await cog.lobby_add.callback(cog, interaction)
+
+            # VC は作成されない
+            interaction.guild.create_voice_channel.assert_not_awaited()
+            # DB 登録も呼ばれない
+            mock_create.assert_not_awaited()
+            # エラーメッセージ
+            interaction.response.send_message.assert_awaited_once()
+            msg = interaction.response.send_message.call_args[0][0]
+            assert "既に" in msg
+            assert interaction.response.send_message.call_args[1]["ephemeral"] is True

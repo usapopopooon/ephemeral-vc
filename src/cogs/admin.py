@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.database.engine import async_session
-from src.services.db_service import create_lobby
+from src.services.db_service import create_lobby, get_lobbies_by_guild
 
 
 class AdminCog(commands.Cog):
@@ -40,6 +40,19 @@ class AdminCog(commands.Cog):
                 "このコマンドはサーバー内でのみ使用できます。", ephemeral=True
             )
             return
+
+        # --- 重複チェック ---
+        # 1サーバーにつきロビーは1つまで
+        async with async_session() as session:
+            existing = await get_lobbies_by_guild(
+                session, str(interaction.guild_id)
+            )
+            if existing:
+                await interaction.response.send_message(
+                    "このサーバーには既にロビーが存在します。",
+                    ephemeral=True,
+                )
+                return
 
         # --- VC の作成 ---
         # 「参加して作成」という名前のボイスチャンネルを作成する。
