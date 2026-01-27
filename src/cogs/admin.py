@@ -14,24 +14,24 @@ class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="lobby", description="Create a new lobby voice channel")
+    @app_commands.command(name="lobby", description="ロビーVCを作成します")
     @app_commands.default_permissions(administrator=True)
     async def lobby_add(self, interaction: discord.Interaction) -> None:
         """Create a new lobby voice channel."""
         if not interaction.guild:
             await interaction.response.send_message(
-                "This command can only be used in a server.", ephemeral=True
+                "このコマンドはサーバー内でのみ使用できます。", ephemeral=True
             )
             return
 
         # Create the lobby voice channel
         try:
             lobby_channel = await interaction.guild.create_voice_channel(
-                name="Join to Create",
+                name="参加して作成",
             )
         except discord.HTTPException as e:
             await interaction.response.send_message(
-                f"Failed to create voice channel: {e}", ephemeral=True
+                f"VCの作成に失敗しました: {e}", ephemeral=True
             )
             return
 
@@ -46,8 +46,8 @@ class AdminCog(commands.Cog):
             )
 
         await interaction.response.send_message(
-            f"Lobby **{lobby_channel.name}** has been created!\n"
-            f"Move it to your desired category manually.",
+            f"ロビー **{lobby_channel.name}** を作成しました！\n"
+            f"お好みのカテゴリに手動で移動してください。",
             ephemeral=True,
         )
 

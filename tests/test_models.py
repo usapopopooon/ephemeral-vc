@@ -90,6 +90,59 @@ class TestVoiceSessionModel:
         assert "channel_id=789" in repr(session)
         assert "owner_id=111" in repr(session)
 
+    async def test_default_is_locked(self, db_session: AsyncSession) -> None:
+        """Test is_locked defaults to False."""
+        lobby = Lobby(guild_id="123", lobby_channel_id="456")
+        db_session.add(lobby)
+        await db_session.commit()
+
+        session = VoiceSession(
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test",
+        )
+        db_session.add(session)
+        await db_session.commit()
+
+        assert session.is_locked is False
+
+    async def test_default_is_hidden(self, db_session: AsyncSession) -> None:
+        """Test is_hidden defaults to False."""
+        lobby = Lobby(guild_id="123", lobby_channel_id="456")
+        db_session.add(lobby)
+        await db_session.commit()
+
+        session = VoiceSession(
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test",
+        )
+        db_session.add(session)
+        await db_session.commit()
+
+        assert session.is_hidden is False
+
+    async def test_default_user_limit(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test user_limit defaults to 0."""
+        lobby = Lobby(guild_id="123", lobby_channel_id="456")
+        db_session.add(lobby)
+        await db_session.commit()
+
+        session = VoiceSession(
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test",
+        )
+        db_session.add(session)
+        await db_session.commit()
+
+        assert session.user_limit == 0
+
     async def test_created_at_auto_set(
         self, db_session: AsyncSession
     ) -> None:
@@ -110,6 +163,26 @@ class TestVoiceSessionModel:
         await db_session.commit()
 
         assert session.created_at is not None
+
+    async def test_created_at_has_timezone(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test created_at is timezone-aware."""
+        lobby = Lobby(guild_id="123", lobby_channel_id="456")
+        db_session.add(lobby)
+        await db_session.commit()
+
+        session = VoiceSession(
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test",
+        )
+        db_session.add(session)
+        await db_session.commit()
+
+        assert session.created_at is not None
+        assert session.created_at.tzinfo is not None
 
     async def test_cascade_delete(
         self, db_session: AsyncSession

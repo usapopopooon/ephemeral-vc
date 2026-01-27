@@ -16,16 +16,16 @@ def create_control_panel_embed(
 ) -> discord.Embed:
     """Create the control panel embed."""
     embed = discord.Embed(
-        title="Voice Channel Controls",
-        description=f"Owner: {owner.mention}",
+        title="ボイスチャンネル設定",
+        description=f"オーナー: {owner.mention}",
         color=discord.Color.blue(),
     )
 
-    lock_status = "Locked" if session.is_locked else "Unlocked"
-    limit_status = str(session.user_limit) if session.user_limit > 0 else "Unlimited"
+    lock_status = "ロック中" if session.is_locked else "未ロック"
+    limit_status = str(session.user_limit) if session.user_limit > 0 else "無制限"
 
-    embed.add_field(name="Status", value=lock_status, inline=True)
-    embed.add_field(name="User Limit", value=limit_status, inline=True)
+    embed.add_field(name="状態", value=lock_status, inline=True)
+    embed.add_field(name="人数制限", value=limit_status, inline=True)
 
     return embed
 
@@ -35,12 +35,12 @@ def create_control_panel_embed(
 # =============================================================================
 
 
-class RenameModal(discord.ui.Modal, title="Rename Channel"):
+class RenameModal(discord.ui.Modal, title="チャンネル名変更"):
     """Modal for renaming the voice channel."""
 
     name: discord.ui.TextInput[Any] = discord.ui.TextInput(
-        label="New Channel Name",
-        placeholder="Enter new channel name...",
+        label="新しいチャンネル名",
+        placeholder="チャンネル名を入力...",
         min_length=1,
         max_length=100,
     )
@@ -55,7 +55,7 @@ class RenameModal(discord.ui.Modal, title="Rename Channel"):
 
         if not validate_channel_name(new_name):
             await interaction.response.send_message(
-                "Invalid channel name.", ephemeral=True
+                "無効なチャンネル名です。", ephemeral=True
             )
             return
 
@@ -65,13 +65,13 @@ class RenameModal(discord.ui.Modal, title="Rename Channel"):
             )
             if not voice_session:
                 await interaction.response.send_message(
-                    "Session not found.", ephemeral=True
+                    "セッションが見つかりません。", ephemeral=True
                 )
                 return
 
             if not is_owner(voice_session.owner_id, interaction.user.id):
                 await interaction.response.send_message(
-                    "Only the owner can rename this channel.", ephemeral=True
+                    "オーナーのみチャンネル名を変更できます。", ephemeral=True
                 )
                 return
 
@@ -82,16 +82,16 @@ class RenameModal(discord.ui.Modal, title="Rename Channel"):
             await update_voice_session(db_session, voice_session, name=new_name)
 
         await interaction.response.send_message(
-            f"Channel renamed to **{new_name}**.", ephemeral=True
+            f"チャンネル名を **{new_name}** に変更しました。", ephemeral=True
         )
 
 
-class UserLimitModal(discord.ui.Modal, title="Change User Limit"):
+class UserLimitModal(discord.ui.Modal, title="人数制限変更"):
     """Modal for changing the user limit."""
 
     limit: discord.ui.TextInput[Any] = discord.ui.TextInput(
-        label="User Limit (0-99, 0 = unlimited)",
-        placeholder="Enter a number between 0 and 99...",
+        label="人数制限 (0〜99、0 = 無制限)",
+        placeholder="0〜99の数字を入力...",
         min_length=1,
         max_length=2,
     )
@@ -106,13 +106,14 @@ class UserLimitModal(discord.ui.Modal, title="Change User Limit"):
             new_limit = int(self.limit.value)
         except ValueError:
             await interaction.response.send_message(
-                "Please enter a valid number.", ephemeral=True
+                "有効な数字を入力してください。", ephemeral=True
             )
             return
 
         if not validate_user_limit(new_limit):
             await interaction.response.send_message(
-                "Invalid user limit. Must be between 0 and 99.", ephemeral=True
+                "無効な人数制限です。0〜99の範囲で入力してください。",
+                ephemeral=True,
             )
             return
 
@@ -122,13 +123,13 @@ class UserLimitModal(discord.ui.Modal, title="Change User Limit"):
             )
             if not voice_session:
                 await interaction.response.send_message(
-                    "Session not found.", ephemeral=True
+                    "セッションが見つかりません。", ephemeral=True
                 )
                 return
 
             if not is_owner(voice_session.owner_id, interaction.user.id):
                 await interaction.response.send_message(
-                    "Only the owner can change the user limit.", ephemeral=True
+                    "オーナーのみ人数制限を変更できます。", ephemeral=True
                 )
                 return
 
@@ -138,9 +139,9 @@ class UserLimitModal(discord.ui.Modal, title="Change User Limit"):
 
             await update_voice_session(db_session, voice_session, user_limit=new_limit)
 
-        limit_text = str(new_limit) if new_limit > 0 else "unlimited"
+        limit_text = str(new_limit) if new_limit > 0 else "無制限"
         await interaction.response.send_message(
-            f"User limit set to **{limit_text}**.", ephemeral=True
+            f"人数制限を **{limit_text}** に設定しました。", ephemeral=True
         )
 
 
@@ -175,7 +176,7 @@ class TransferSelectMenu(discord.ui.Select[Any]):
 
     def __init__(self, options: list[discord.SelectOption]) -> None:
         super().__init__(
-            placeholder="Select new owner...", options=options
+            placeholder="新しいオーナーを選択...", options=options
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -191,7 +192,7 @@ class TransferSelectMenu(discord.ui.Select[Any]):
         new_owner = guild.get_member(int(self.values[0]))
         if not new_owner:
             await interaction.response.edit_message(
-                content="Member not found.", view=None
+                content="メンバーが見つかりません。", view=None
             )
             return
 
@@ -201,7 +202,7 @@ class TransferSelectMenu(discord.ui.Select[Any]):
             )
             if not voice_session:
                 await interaction.response.edit_message(
-                    content="Session not found.", view=None
+                    content="セッションが見つかりません。", view=None
                 )
                 return
 
@@ -221,7 +222,7 @@ class TransferSelectMenu(discord.ui.Select[Any]):
             )
 
         await interaction.response.edit_message(
-            content=f"Ownership transferred to {new_owner.mention}.",
+            content=f"{new_owner.mention} にオーナーを譲渡しました。",
             view=None,
         )
 
@@ -232,7 +233,10 @@ class KickSelectView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=60)
 
-    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select user to kick...")
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="キックするユーザーを選択...",
+    )
     async def select_user(
         self, interaction: discord.Interaction, select: discord.ui.UserSelect[Any]
     ) -> None:
@@ -249,13 +253,14 @@ class KickSelectView(discord.ui.View):
             and user_to_kick.voice.channel == channel
         ):
             await interaction.response.edit_message(
-                content=f"{user_to_kick.mention} is not in this channel.", view=None
+                content=f"{user_to_kick.mention} はこのチャンネルにいません。",
+                view=None,
             )
             return
 
         await user_to_kick.move_to(None)
         await interaction.response.edit_message(
-            content=f"{user_to_kick.mention} has been kicked.", view=None
+            content=f"{user_to_kick.mention} をキックしました。", view=None
         )
 
 
@@ -266,7 +271,7 @@ class BlockSelectView(discord.ui.View):
         super().__init__(timeout=60)
 
     @discord.ui.select(
-        cls=discord.ui.UserSelect, placeholder="Select user to block..."
+        cls=discord.ui.UserSelect, placeholder="ブロックするユーザーを選択..."
     )
     async def select_user(
         self, interaction: discord.Interaction, select: discord.ui.UserSelect[Any]
@@ -291,7 +296,7 @@ class BlockSelectView(discord.ui.View):
             await user_to_block.move_to(None)
 
         await interaction.response.edit_message(
-            content=f"{user_to_block.mention} has been blocked.", view=None
+            content=f"{user_to_block.mention} をブロックしました。", view=None
         )
 
 
@@ -302,7 +307,7 @@ class AllowSelectView(discord.ui.View):
         super().__init__(timeout=60)
 
     @discord.ui.select(
-        cls=discord.ui.UserSelect, placeholder="Select user to allow..."
+        cls=discord.ui.UserSelect, placeholder="許可するユーザーを選択..."
     )
     async def select_user(
         self, interaction: discord.Interaction, select: discord.ui.UserSelect[Any]
@@ -319,7 +324,7 @@ class AllowSelectView(discord.ui.View):
 
         await channel.set_permissions(user_to_allow, connect=True)
         await interaction.response.edit_message(
-            content=f"{user_to_allow.mention} has been allowed.", view=None
+            content=f"{user_to_allow.mention} を許可しました。", view=None
         )
 
 
@@ -351,7 +356,7 @@ class BitrateSelectMenu(discord.ui.Select[Any]):
 
     def __init__(self, options: list[discord.SelectOption]) -> None:
         super().__init__(
-            placeholder="Select bitrate...", options=options
+            placeholder="ビットレートを選択...", options=options
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -364,15 +369,15 @@ class BitrateSelectMenu(discord.ui.Select[Any]):
                 await channel.edit(bitrate=bitrate)
             except discord.HTTPException:
                 await interaction.response.edit_message(
-                    content="This bitrate is not available "
-                    "for this server's boost level.",
+                    content="このサーバーのブーストレベルでは"
+                    "利用できないビットレートです。",
                     view=None,
                 )
                 return
 
         label = f"{bitrate // 1000} kbps"
         await interaction.response.edit_message(
-            content=f"Bitrate changed to **{label}**.",
+            content=f"ビットレートを **{label}** に変更しました。",
             view=None,
         )
 
@@ -381,20 +386,20 @@ class RegionSelectView(discord.ui.View):
     """Ephemeral view with region select."""
 
     REGIONS = [
-        ("Automatic", "auto"),
-        ("Japan", "japan"),
-        ("Singapore", "singapore"),
-        ("Hong Kong", "hongkong"),
-        ("Sydney", "sydney"),
-        ("India", "india"),
-        ("US West", "us-west"),
-        ("US East", "us-east"),
-        ("US Central", "us-central"),
-        ("US South", "us-south"),
-        ("Europe", "europe"),
-        ("Brazil", "brazil"),
-        ("South Africa", "southafrica"),
-        ("Russia", "russia"),
+        ("自動", "auto"),
+        ("日本", "japan"),
+        ("シンガポール", "singapore"),
+        ("香港", "hongkong"),
+        ("シドニー", "sydney"),
+        ("インド", "india"),
+        ("米国西部", "us-west"),
+        ("米国東部", "us-east"),
+        ("米国中部", "us-central"),
+        ("米国南部", "us-south"),
+        ("ヨーロッパ", "europe"),
+        ("ブラジル", "brazil"),
+        ("南アフリカ", "southafrica"),
+        ("ロシア", "russia"),
     ]
 
     def __init__(self) -> None:
@@ -410,7 +415,7 @@ class RegionSelectMenu(discord.ui.Select[Any]):
     """Region select menu."""
 
     def __init__(self, options: list[discord.SelectOption]) -> None:
-        super().__init__(placeholder="Select region...", options=options)
+        super().__init__(placeholder="リージョンを選択...", options=options)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         """Handle selection."""
@@ -421,9 +426,10 @@ class RegionSelectMenu(discord.ui.Select[Any]):
         if isinstance(channel, discord.VoiceChannel):
             await channel.edit(rtc_region=region)
 
-        region_name = selected if selected != "auto" else "Automatic"
+        region_name = selected if selected != "auto" else "自動"
         await interaction.response.edit_message(
-            content=f"Region changed to **{region_name}**.", view=None
+            content=f"リージョンを **{region_name}** に変更しました。",
+            view=None,
         )
 
 
@@ -436,18 +442,25 @@ class ControlPanelView(discord.ui.View):
     """Main control panel view with buttons only."""
 
     def __init__(
-        self, session_id: int, is_locked: bool = False, is_hidden: bool = False
+        self,
+        session_id: int,
+        is_locked: bool = False,
+        is_hidden: bool = False,
+        is_nsfw: bool = False,
     ) -> None:
         super().__init__(timeout=None)
         self.session_id = session_id
 
         if is_locked:
-            self.lock_button.label = "Unlock"
+            self.lock_button.label = "解除"
             self.lock_button.emoji = "🔓"
 
         if is_hidden:
-            self.hide_button.label = "Unhide"
+            self.hide_button.label = "表示"
             self.hide_button.emoji = "👁️"
+
+        if is_nsfw:
+            self.nsfw_button.label = "制限解除"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Check if the user is the owner before allowing any interaction."""
@@ -457,13 +470,13 @@ class ControlPanelView(discord.ui.View):
             )
             if not voice_session:
                 await interaction.response.send_message(
-                    "Session not found.", ephemeral=True
+                    "セッションが見つかりません。", ephemeral=True
                 )
                 return False
 
             if not is_owner(voice_session.owner_id, interaction.user.id):
                 await interaction.response.send_message(
-                    "Only the channel owner can use this control panel.",
+                    "チャンネルオーナーのみ操作できます。",
                     ephemeral=True,
                 )
                 return False
@@ -472,7 +485,7 @@ class ControlPanelView(discord.ui.View):
 
     # Row 0
     @discord.ui.button(
-        label="Rename",
+        label="名前変更",
         emoji="🏷️",
         style=discord.ButtonStyle.secondary,
         custom_id="rename_button",
@@ -485,7 +498,7 @@ class ControlPanelView(discord.ui.View):
         await interaction.response.send_modal(RenameModal(self.session_id))
 
     @discord.ui.button(
-        label="Limit",
+        label="人数制限",
         emoji="👥",
         style=discord.ButtonStyle.secondary,
         custom_id="limit_button",
@@ -498,8 +511,8 @@ class ControlPanelView(discord.ui.View):
         await interaction.response.send_modal(UserLimitModal(self.session_id))
 
     @discord.ui.button(
-        label="Bitrate",
-        emoji="🎵",
+        label="ビットレート",
+        emoji="🔊",
         style=discord.ButtonStyle.secondary,
         custom_id="bitrate_button",
         row=0,
@@ -509,14 +522,14 @@ class ControlPanelView(discord.ui.View):
     ) -> None:
         """Handle bitrate button click."""
         await interaction.response.send_message(
-            "Select bitrate:",
+            "ビットレートを選択:",
             view=BitrateSelectView(),
             ephemeral=True,
         )
 
     # Row 1
     @discord.ui.button(
-        label="Lock",
+        label="ロック",
         emoji="🔒",
         style=discord.ButtonStyle.secondary,
         custom_id="lock_button",
@@ -553,27 +566,27 @@ class ControlPanelView(discord.ui.View):
                         mute_members=True,
                         deafen_members=True,
                     )
-                button.label = "Unlock"
+                button.label = "解除"
                 button.emoji = "🔓"
             else:
                 await channel.set_permissions(
                     interaction.guild.default_role, overwrite=None
                 )
-                button.label = "Lock"
+                button.label = "ロック"
                 button.emoji = "🔒"
 
             await update_voice_session(
                 db_session, voice_session, is_locked=new_locked_state
             )
 
-        status = "locked" if new_locked_state else "unlocked"
+        status = "ロック" if new_locked_state else "ロック解除"
         await interaction.response.edit_message(view=self)
         await interaction.followup.send(
-            f"Channel has been **{status}**.", ephemeral=True
+            f"チャンネルを **{status}** しました。", ephemeral=True
         )
 
     @discord.ui.button(
-        label="Region",
+        label="リージョン",
         emoji="🌏",
         style=discord.ButtonStyle.secondary,
         custom_id="region_button",
@@ -584,11 +597,11 @@ class ControlPanelView(discord.ui.View):
     ) -> None:
         """Handle region button click."""
         await interaction.response.send_message(
-            "Select a region:", view=RegionSelectView(), ephemeral=True
+            "リージョンを選択:", view=RegionSelectView(), ephemeral=True
         )
 
     @discord.ui.button(
-        label="Hide",
+        label="非表示",
         emoji="🙈",
         style=discord.ButtonStyle.secondary,
         custom_id="hide_button",
@@ -619,29 +632,29 @@ class ControlPanelView(discord.ui.View):
                 # Allow all current members to see the channel
                 for member in channel.members:
                     await channel.set_permissions(member, view_channel=True)
-                button.label = "Unhide"
+                button.label = "表示"
                 button.emoji = "👁️"
             else:
                 # Unhide: remove @everyone view_channel override
                 await channel.set_permissions(
                     interaction.guild.default_role, view_channel=None
                 )
-                button.label = "Hide"
+                button.label = "非表示"
                 button.emoji = "🙈"
 
             await update_voice_session(
                 db_session, voice_session, is_hidden=new_hidden_state
             )
 
-        status = "hidden" if new_hidden_state else "visible"
+        status = "非表示" if new_hidden_state else "表示"
         await interaction.response.edit_message(view=self)
         await interaction.followup.send(
-            f"Channel is now **{status}**.", ephemeral=True
+            f"チャンネルを **{status}** にしました。", ephemeral=True
         )
 
     # Row 2
     @discord.ui.button(
-        label="Transfer",
+        label="譲渡",
         emoji="👑",
         style=discord.ButtonStyle.secondary,
         custom_id="transfer_button",
@@ -658,17 +671,17 @@ class ControlPanelView(discord.ui.View):
         view = TransferSelectView(channel, interaction.user.id)
         if not view.children:
             await interaction.response.send_message(
-                "No other members in this channel.",
+                "他にメンバーがいません。",
                 ephemeral=True,
             )
             return
 
         await interaction.response.send_message(
-            "Select new owner:", view=view, ephemeral=True
+            "新しいオーナーを選択:", view=view, ephemeral=True
         )
 
     @discord.ui.button(
-        label="Kick",
+        label="キック",
         emoji="👟",
         style=discord.ButtonStyle.secondary,
         custom_id="kick_button",
@@ -679,12 +692,42 @@ class ControlPanelView(discord.ui.View):
     ) -> None:
         """Handle kick button click."""
         await interaction.response.send_message(
-            "Select user to kick:", view=KickSelectView(), ephemeral=True
+            "キックするユーザーを選択:", view=KickSelectView(), ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="年齢制限",
+        emoji="🔞",
+        style=discord.ButtonStyle.secondary,
+        custom_id="nsfw_button",
+        row=2,
+    )
+    async def nsfw_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button[Any]
+    ) -> None:
+        """Handle NSFW toggle button click."""
+        channel = interaction.channel
+        if not isinstance(channel, discord.VoiceChannel):
+            return
+
+        new_nsfw = not channel.nsfw
+
+        await channel.edit(nsfw=new_nsfw)
+
+        if new_nsfw:
+            button.label = "制限解除"
+        else:
+            button.label = "年齢制限"
+
+        await interaction.response.edit_message(view=self)
+        status = "年齢制限を設定" if new_nsfw else "年齢制限を解除"
+        await interaction.followup.send(
+            f"チャンネルの **{status}** しました。", ephemeral=True
         )
 
     # Row 3
     @discord.ui.button(
-        label="Block",
+        label="ブロック",
         emoji="🚫",
         style=discord.ButtonStyle.danger,
         custom_id="block_button",
@@ -695,11 +738,11 @@ class ControlPanelView(discord.ui.View):
     ) -> None:
         """Handle block button click."""
         await interaction.response.send_message(
-            "Select user to block:", view=BlockSelectView(), ephemeral=True
+            "ブロックするユーザーを選択:", view=BlockSelectView(), ephemeral=True
         )
 
     @discord.ui.button(
-        label="Allow",
+        label="許可",
         emoji="✅",
         style=discord.ButtonStyle.success,
         custom_id="allow_button",
@@ -710,5 +753,5 @@ class ControlPanelView(discord.ui.View):
     ) -> None:
         """Handle allow button click."""
         await interaction.response.send_message(
-            "Select user to allow:", view=AllowSelectView(), ephemeral=True
+            "許可するユーザーを選択:", view=AllowSelectView(), ephemeral=True
         )
