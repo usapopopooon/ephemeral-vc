@@ -30,6 +30,7 @@ class EphemeralVCBot(commands.Bot):
         # Load cogs
         await self.load_extension("src.cogs.voice")
         await self.load_extension("src.cogs.admin")
+        await self.load_extension("src.cogs.health")
 
         # Restore persistent views for existing sessions
         async with async_session() as session:

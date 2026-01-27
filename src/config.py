@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     discord_token: str
     database_url: str = "sqlite+aiosqlite:///data/ephemeral_vc.db"
+    health_channel_id: int = 0
 
     @property
     def async_database_url(self) -> str:
