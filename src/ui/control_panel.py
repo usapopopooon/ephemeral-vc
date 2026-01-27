@@ -693,6 +693,10 @@ class ControlPanelView(discord.ui.View):
                 return
 
             # トグル: 現在の状態を反転
+            # 注意: read → toggle → write は非アトミック操作のため、
+            # 理論上は同時押しで lost update が発生しうる。
+            # ただし interaction_check でオーナーのみに制限しているため、
+            # 実際に同時トグルが起きることはない。
             new_locked_state = not voice_session.is_locked
 
             if new_locked_state:
@@ -762,6 +766,8 @@ class ControlPanelView(discord.ui.View):
             if not voice_session:
                 return
 
+            # 注意: lock ボタンと同様、非アトミックなトグル操作。
+            # interaction_check のオーナー制限により実害なし。
             new_hidden_state = not voice_session.is_hidden
 
             if new_hidden_state:

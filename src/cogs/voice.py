@@ -49,6 +49,10 @@ class VoiceCog(commands.Cog):
         # オーナー退出時に「最も長くいるメンバー」を特定するために使う。
         # 構造: {チャンネルID: {ユーザーID: 参加時刻(monotonic)}}
         # time.monotonic() はシステム起動からの秒数で、時計の変更に影響されない。
+        #
+        # 注意: この dict はメモリ上のみに保持される。Bot 再起動時に全記録が消え、
+        # 引き継ぎ先の判定ができなくなる。その場合 _get_longest_member() の
+        # float("inf") フォールバックにより channel.members の順序で選ばれる。
         self._join_times: dict[int, dict[int, float]] = {}
 
     # ==========================================================================
@@ -100,6 +104,24 @@ class VoiceCog(commands.Cog):
             # 一時 VC の退出処理 (空なら削除、オーナー退出なら引き継ぎ)
             await self._handle_channel_leave(member, before.channel)
 
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(
+        self, channel: discord.abc.GuildChannel
+    ) -> None:
+        """Discord 上でチャンネルが削除されたときに呼ばれるリスナー。
+
+        管理者が手動で一時 VC を削除した場合、on_voice_state_update は
+        発火しないため、DB にレコードが残ってしまう (孤立レコード)。
+        このリスナーで削除されたチャンネルの DB レコードをクリーンアップする。
+        """
+        if not isinstance(channel, discord.VoiceChannel):
+            return
+        # メモリ上の参加記録を削除
+        self._cleanup_channel(channel.id)
+        # DB の voice_session レコードを削除 (存在しなくても安全)
+        async with async_session() as session:
+            await delete_voice_session(session, str(channel.id))
+
     # ==========================================================================
     # 参加時刻の追跡ヘルパー
     # ==========================================================================
@@ -143,7 +165,9 @@ class VoiceCog(commands.Cog):
         if not remaining:
             return None
         # 参加時刻 (monotonic) が小さい = 先に参加した = 最も長くいる
-        # 記録が無いメンバーは inf (最後尾) にする
+        # 記録が無いメンバーは inf (最後尾) にする。
+        # Bot 再起動直後は全員 inf になるが、sort は安定なので
+        # channel.members の元の順序で先頭メンバーが選ばれる。
         remaining.sort(key=lambda m: records.get(m.id, float("inf")))
         return remaining[0]
 
@@ -211,40 +235,49 @@ class VoiceCog(commands.Cog):
                 await new_channel.delete()
                 raise
 
-            # --- テキストチャット権限の設定 ---
-            # VC 内のテキストチャットはデフォルトでオーナーのみ閲覧可にする。
-            # read_message_history=False → メッセージ履歴を見れない
-            # read_message_history=True → メッセージ履歴を見れる
-            await new_channel.set_permissions(
-                guild.default_role, read_message_history=False
-            )
-            await new_channel.set_permissions(
-                member, read_message_history=True
-            )
-
-            # --- メンバーの移動 ---
-            # ロビーから新しい VC にメンバーを移動する。
-            # HTTPException が発生した場合 (メンバーが既に退出した等) はクリーンアップ。
+            # --- チャンネル初期化 ---
+            # DB セッション作成後の全操作をまとめてエラーハンドリングする。
+            # set_permissions, move_to, send のいずれかが失敗した場合、
+            # 不完全なチャンネルと DB レコードを両方クリーンアップする。
             try:
+                # テキストチャット権限の設定
+                # VC 内のテキストチャットはデフォルトでオーナーのみ閲覧可にする
+                await new_channel.set_permissions(
+                    guild.default_role, read_message_history=False
+                )
+                await new_channel.set_permissions(
+                    member, read_message_history=True
+                )
+
+                # メンバーをロビーから新しい VC に移動
                 await member.move_to(new_channel)
+
+                # コントロールパネル (Embed + ボタン) を送信
+                embed = create_control_panel_embed(voice_session, member)
+                view = ControlPanelView(
+                    voice_session.id,
+                    voice_session.is_locked,
+                    voice_session.is_hidden,
+                )
+                self.bot.add_view(view)
+                panel_msg = await new_channel.send(
+                    embed=embed, view=view
+                )
+
+                # コントロールパネルをピン留めする。
+                # _transfer_ownership で pins() から確実に見つけられるようにする。
+                with contextlib.suppress(discord.HTTPException):
+                    await panel_msg.pin()
+
             except discord.HTTPException:
-                await new_channel.delete()
+                # いずれかの Discord API 呼び出しが失敗した場合、
+                # チャンネルと DB レコードを両方削除してクリーンアップ
+                with contextlib.suppress(discord.HTTPException):
+                    await new_channel.delete()
                 await delete_voice_session(
                     session, str(new_channel.id)
                 )
                 return
-
-            # --- コントロールパネルの送信 ---
-            # Embed (情報表示) + View (ボタン UI) をチャンネルに送信する。
-            embed = create_control_panel_embed(voice_session, member)
-            view = ControlPanelView(
-                voice_session.id,
-                voice_session.is_locked,
-                voice_session.is_hidden,
-            )
-            # add_view() で Bot にビューを登録 (再起動後もボタンが効くようにする)
-            self.bot.add_view(view)
-            await new_channel.send(embed=embed, view=view)
 
     # ==========================================================================
     # 退出処理
@@ -287,6 +320,32 @@ class VoiceCog(commands.Cog):
                     session, voice_session, member, channel
                 )
 
+    async def _find_panel_message(
+        self, channel: discord.VoiceChannel
+    ) -> discord.Message | None:
+        """コントロールパネルのメッセージを探す。
+
+        ピン留めメッセージを優先的に検索し、見つからなければ
+        チャンネル履歴から Bot の Embed メッセージを探す。
+
+        Returns:
+            見つかったメッセージ。見つからなければ None
+        """
+        # ピン留めメッセージから探す (通常はここで見つかる)
+        with contextlib.suppress(discord.HTTPException):
+            pins = await channel.pins()
+            for pinned in pins:
+                if pinned.author == self.bot.user and pinned.embeds:
+                    return pinned
+
+        # フォールバック: 履歴から探す (ピン留め前の古いセッション等)
+        with contextlib.suppress(discord.HTTPException):
+            async for hist_msg in channel.history(limit=50):
+                if hist_msg.author == self.bot.user and hist_msg.embeds:
+                    return hist_msg
+
+        return None
+
     async def _transfer_ownership(
         self,
         session: AsyncSession,
@@ -325,13 +384,12 @@ class VoiceCog(commands.Cog):
             )
 
         # コントロールパネルの Embed を新オーナー情報で更新
-        # チャンネルの最近20件のメッセージから Bot の Embed を探して編集する
+        # まずピン留めメッセージから探し、見つからなければ履歴を検索する
         embed = create_control_panel_embed(voice_session, new_owner)
-        async for msg in channel.history(limit=20):
-            if msg.author == self.bot.user and msg.embeds:
-                with contextlib.suppress(discord.HTTPException):
-                    await msg.edit(embed=embed)
-                break
+        panel_msg = await self._find_panel_message(channel)
+        if panel_msg:
+            with contextlib.suppress(discord.HTTPException):
+                await panel_msg.edit(embed=embed)
 
         # チャンネルに引き継ぎ通知を送信
         with contextlib.suppress(discord.HTTPException):
