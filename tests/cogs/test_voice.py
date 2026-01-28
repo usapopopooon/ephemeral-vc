@@ -876,9 +876,6 @@ class TestPanelCommand:
             new_callable=AsyncMock,
             return_value=voice_session,
         ), patch(
-            "src.cogs.voice.is_owner",
-            return_value=True,
-        ), patch(
             "src.cogs.voice.repost_panel",
             new_callable=AsyncMock,
         ) as mock_repost:
@@ -891,8 +888,8 @@ class TestPanelCommand:
             call_kwargs = interaction.response.send_message.call_args[1]
             assert call_kwargs["ephemeral"] is True
 
-    async def test_panel_rejects_non_owner(self) -> None:
-        """オーナー以外は拒否される。"""
+    async def test_panel_allowed_for_non_owner(self) -> None:
+        """オーナー以外でも /panel を実行できる。"""
         cog = _make_cog()
         channel = _make_channel(100)
         interaction = _make_interaction(2, channel)
@@ -905,14 +902,15 @@ class TestPanelCommand:
             new_callable=AsyncMock,
             return_value=voice_session,
         ), patch(
-            "src.cogs.voice.is_owner",
-            return_value=False,
-        ):
+            "src.cogs.voice.repost_panel",
+            new_callable=AsyncMock,
+        ) as mock_repost:
             await cog.panel.callback(cog, interaction)
 
+            mock_repost.assert_awaited_once_with(channel, cog.bot)
             interaction.response.send_message.assert_awaited_once()
-            msg = interaction.response.send_message.call_args[0][0]
-            assert "オーナー" in msg
+            call_kwargs = interaction.response.send_message.call_args[1]
+            assert call_kwargs["ephemeral"] is True
 
     async def test_panel_rejects_non_voice_channel(self) -> None:
         """VC 外で使用すると拒否される。"""

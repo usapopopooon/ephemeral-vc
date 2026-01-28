@@ -19,6 +19,7 @@ from src.ui.control_panel import (
     TransferSelectMenu,
     TransferSelectView,
     UserLimitModal,
+    _find_panel_message,
     create_control_panel_embed,
     repost_panel,
 )
@@ -76,6 +77,22 @@ def _make_interaction(
     interaction.followup = AsyncMock()
 
     return interaction
+
+
+class _AsyncIter:
+    """AsyncIterator for mocking channel.history()."""
+
+    def __init__(self, items: list[MagicMock]) -> None:
+        self._items = iter(items)
+
+    def __aiter__(self) -> _AsyncIter:
+        return self
+
+    async def __anext__(self) -> MagicMock:
+        try:
+            return next(self._items)
+        except StopIteration:
+            raise StopAsyncIteration from None
 
 
 def _mock_async_session() -> tuple[MagicMock, AsyncMock]:
@@ -1477,8 +1494,9 @@ class TestRepostPanel:
         owner = MagicMock(spec=discord.Member)
         channel.guild.get_member = MagicMock(return_value=owner)
 
-        # ピンが空
+        # ピンが空、履歴も空
         channel.pins = AsyncMock(return_value=[])
+        channel.history = MagicMock(return_value=_AsyncIter([]))
         channel.send = AsyncMock(return_value=MagicMock())
 
         voice_session = _make_voice_session(owner_id="1")
@@ -1498,8 +1516,8 @@ class TestRepostPanel:
         # 新パネルは送信される
         channel.send.assert_awaited_once()
 
-    async def test_suppresses_http_exception_on_pins(self) -> None:
-        """pins() で HTTPException が発生しても新パネルは送信される。"""
+    async def test_suppresses_http_exception_on_find(self) -> None:
+        """_find_panel_message で HTTPException が発生しても新パネルは送信される。"""
         channel = MagicMock(spec=discord.VoiceChannel)
         channel.id = 100
         channel.nsfw = False
@@ -1508,12 +1526,6 @@ class TestRepostPanel:
         owner = MagicMock(spec=discord.Member)
         channel.guild.get_member = MagicMock(return_value=owner)
 
-        # pins() が HTTPException を送出
-        channel.pins = AsyncMock(
-            side_effect=discord.HTTPException(
-                MagicMock(status=500), "Internal error"
-            )
-        )
         channel.send = AsyncMock(return_value=MagicMock())
 
         voice_session = _make_voice_session(owner_id="1")
@@ -1527,10 +1539,14 @@ class TestRepostPanel:
             "src.ui.control_panel.get_voice_session",
             new_callable=AsyncMock,
             return_value=voice_session,
+        ), patch(
+            "src.ui.control_panel._find_panel_message",
+            new_callable=AsyncMock,
+            return_value=None,
         ):
             await repost_panel(channel, bot)
 
-        # エラーが抑制され、新パネルは送信される
+        # 旧パネルが見つからなくても新パネルは送信される
         channel.send.assert_awaited_once()
 
     async def test_does_not_delete_non_panel_pins(self) -> None:
@@ -1556,6 +1572,10 @@ class TestRepostPanel:
         user_msg.delete = AsyncMock()
 
         channel.pins = AsyncMock(return_value=[other_bot_msg, user_msg])
+        # 履歴にも同じメッセージ (パネルではない)
+        channel.history = MagicMock(
+            return_value=_AsyncIter([other_bot_msg, user_msg])
+        )
         channel.send = AsyncMock(return_value=MagicMock())
 
         voice_session = _make_voice_session(owner_id="1")
@@ -1586,6 +1606,7 @@ class TestRepostPanel:
         owner = MagicMock(spec=discord.Member)
         channel.guild.get_member = MagicMock(return_value=owner)
         channel.pins = AsyncMock(return_value=[])
+        channel.history = MagicMock(return_value=_AsyncIter([]))
         channel.send = AsyncMock(return_value=MagicMock())
 
         voice_session = _make_voice_session(
@@ -1611,3 +1632,466 @@ class TestRepostPanel:
         mock_view_cls.assert_called_once_with(
             voice_session.id, True, True, True
         )
+
+    async def test_deletes_unpinned_panel_from_history(self) -> None:
+        """ピン留めされていない旧パネルも履歴から見つけて削除する。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.id = 100
+        channel.nsfw = False
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        owner = MagicMock(spec=discord.Member)
+        channel.guild.get_member = MagicMock(return_value=owner)
+
+        # ピンにはパネルがない
+        channel.pins = AsyncMock(return_value=[])
+
+        # 履歴にパネルがある (ピン留めされていない)
+        old_msg = MagicMock()
+        old_msg.author = channel.guild.me
+        old_msg.embeds = [MagicMock(title="ボイスチャンネル設定")]
+        old_msg.delete = AsyncMock()
+        channel.history = MagicMock(return_value=_AsyncIter([old_msg]))
+
+        channel.send = AsyncMock(return_value=MagicMock())
+
+        voice_session = _make_voice_session(owner_id="1")
+        bot = MagicMock()
+        bot.add_view = MagicMock()
+
+        mock_factory, _ = _mock_async_session()
+        with patch(
+            "src.ui.control_panel.async_session", mock_factory
+        ), patch(
+            "src.ui.control_panel.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            await repost_panel(channel, bot)
+
+        # 履歴から見つけた旧パネルが削除される
+        old_msg.delete.assert_awaited_once()
+        # 新パネルも送信される
+        channel.send.assert_awaited_once()
+
+
+# ===========================================================================
+# _find_panel_message テスト
+# ===========================================================================
+
+
+class TestFindPanelMessage:
+    """Tests for _find_panel_message helper."""
+
+    async def test_finds_panel_in_pins(self) -> None:
+        """ピン留めからパネルを見つける。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        panel_msg = MagicMock()
+        panel_msg.author = channel.guild.me
+        panel_msg.embeds = [MagicMock(title="ボイスチャンネル設定")]
+        channel.pins = AsyncMock(return_value=[panel_msg])
+
+        result = await _find_panel_message(channel)
+        assert result is panel_msg
+
+    async def test_finds_panel_in_history(self) -> None:
+        """ピンになければ履歴からパネルを見つける。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        panel_msg = MagicMock()
+        panel_msg.author = channel.guild.me
+        panel_msg.embeds = [MagicMock(title="ボイスチャンネル設定")]
+
+        channel.pins = AsyncMock(return_value=[])
+        channel.history = MagicMock(return_value=_AsyncIter([panel_msg]))
+
+        result = await _find_panel_message(channel)
+        assert result is panel_msg
+
+    async def test_returns_none_when_not_found(self) -> None:
+        """パネルが見つからなければ None を返す。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        channel.pins = AsyncMock(return_value=[])
+        channel.history = MagicMock(return_value=_AsyncIter([]))
+
+        result = await _find_panel_message(channel)
+        assert result is None
+
+    async def test_ignores_non_bot_messages(self) -> None:
+        """Bot 以外のメッセージは無視する。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        user_msg = MagicMock()
+        user_msg.author = MagicMock()  # guild.me とは異なる
+        user_msg.embeds = [MagicMock(title="ボイスチャンネル設定")]
+
+        channel.pins = AsyncMock(return_value=[user_msg])
+        channel.history = MagicMock(return_value=_AsyncIter([user_msg]))
+
+        result = await _find_panel_message(channel)
+        assert result is None
+
+    async def test_ignores_wrong_title(self) -> None:
+        """タイトルが異なる Embed は無視する。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        bot_msg = MagicMock()
+        bot_msg.author = channel.guild.me
+        bot_msg.embeds = [MagicMock(title="別のEmbed")]
+
+        channel.pins = AsyncMock(return_value=[bot_msg])
+        channel.history = MagicMock(return_value=_AsyncIter([bot_msg]))
+
+        result = await _find_panel_message(channel)
+        assert result is None
+
+    async def test_suppresses_http_exception_on_pins(self) -> None:
+        """pins() で HTTPException が発生しても履歴にフォールバック。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        panel_msg = MagicMock()
+        panel_msg.author = channel.guild.me
+        panel_msg.embeds = [MagicMock(title="ボイスチャンネル設定")]
+
+        channel.pins = AsyncMock(
+            side_effect=discord.HTTPException(
+                MagicMock(status=500), "error"
+            )
+        )
+        channel.history = MagicMock(return_value=_AsyncIter([panel_msg]))
+
+        result = await _find_panel_message(channel)
+        assert result is panel_msg
+
+    async def test_suppresses_http_exception_on_history(self) -> None:
+        """history() でも HTTPException が発生すると None を返す。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        channel.pins = AsyncMock(return_value=[])
+        channel.history = MagicMock(
+            side_effect=discord.HTTPException(
+                MagicMock(status=500), "error"
+            )
+        )
+
+        result = await _find_panel_message(channel)
+        assert result is None
+
+
+# ===========================================================================
+# KickSelectView テスト
+# ===========================================================================
+
+
+class TestKickSelectCallback:
+    """Tests for KickSelectView.select_user callback."""
+
+    async def test_kick_success(self) -> None:
+        """VC 内のメンバーをキックする。"""
+        view = KickSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+        channel = interaction.channel
+
+        user_to_kick = MagicMock(spec=discord.Member)
+        user_to_kick.mention = "<@2>"
+        user_to_kick.voice = MagicMock()
+        user_to_kick.voice.channel = channel
+        user_to_kick.move_to = AsyncMock()
+
+        select._values = [user_to_kick]
+
+        await select.callback(interaction)
+
+        user_to_kick.move_to.assert_awaited_once_with(None)
+        interaction.response.edit_message.assert_awaited_once()
+        msg = interaction.response.edit_message.call_args[1]["content"]
+        assert "キック" in msg
+        channel.send.assert_awaited_once()
+
+    async def test_kick_user_not_in_channel(self) -> None:
+        """VC にいないメンバーはキックできない。"""
+        view = KickSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+
+        user_to_kick = MagicMock(spec=discord.Member)
+        user_to_kick.mention = "<@2>"
+        user_to_kick.voice = MagicMock()
+        user_to_kick.voice.channel = MagicMock()  # 別のチャンネル
+
+        select._values = [user_to_kick]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_awaited_once()
+        msg = interaction.response.edit_message.call_args[1]["content"]
+        assert "いません" in msg
+
+    async def test_kick_non_voice_channel(self) -> None:
+        """VoiceChannel でない場合は何もしない。"""
+        view = KickSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+
+        select._values = [MagicMock()]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+
+# ===========================================================================
+# BlockSelectView テスト
+# ===========================================================================
+
+
+class TestBlockSelectCallback:
+    """Tests for BlockSelectView.select_user callback."""
+
+    async def test_block_success(self) -> None:
+        """メンバーをブロックする。"""
+        view = BlockSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+        channel = interaction.channel
+
+        user_to_block = MagicMock(spec=discord.Member)
+        user_to_block.mention = "<@2>"
+        user_to_block.voice = MagicMock()
+        user_to_block.voice.channel = channel
+        user_to_block.move_to = AsyncMock()
+
+        select._values = [user_to_block]
+
+        await select.callback(interaction)
+
+        channel.set_permissions.assert_awaited_once_with(
+            user_to_block, connect=False
+        )
+        # VC にいるのでキックもされる
+        user_to_block.move_to.assert_awaited_once_with(None)
+        interaction.response.edit_message.assert_awaited_once()
+        msg = interaction.response.edit_message.call_args[1]["content"]
+        assert "ブロック" in msg
+        channel.send.assert_awaited_once()
+
+    async def test_block_user_not_in_vc(self) -> None:
+        """VC にいないメンバーをブロック (キックなし)。"""
+        view = BlockSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+        channel = interaction.channel
+
+        user_to_block = MagicMock(spec=discord.Member)
+        user_to_block.mention = "<@2>"
+        user_to_block.voice = None  # VC にいない
+        user_to_block.move_to = AsyncMock()
+
+        select._values = [user_to_block]
+
+        await select.callback(interaction)
+
+        channel.set_permissions.assert_awaited_once_with(
+            user_to_block, connect=False
+        )
+        # VC にいないのでキックされない
+        user_to_block.move_to.assert_not_awaited()
+        interaction.response.edit_message.assert_awaited_once()
+
+    async def test_block_non_voice_channel(self) -> None:
+        """VoiceChannel でない場合は何もしない。"""
+        view = BlockSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+
+        select._values = [MagicMock(spec=discord.Member)]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+    async def test_block_non_member(self) -> None:
+        """Member でない場合は何もしない。"""
+        view = BlockSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+
+        # spec=discord.User (Member ではない)
+        non_member = MagicMock(spec=discord.User)
+
+        select._values = [non_member]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+
+# ===========================================================================
+# AllowSelectView テスト
+# ===========================================================================
+
+
+class TestAllowSelectCallback:
+    """Tests for AllowSelectView.select_user callback."""
+
+    async def test_allow_success(self) -> None:
+        """メンバーに接続を許可する。"""
+        view = AllowSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+        channel = interaction.channel
+
+        user_to_allow = MagicMock(spec=discord.Member)
+        user_to_allow.mention = "<@2>"
+
+        select._values = [user_to_allow]
+
+        await select.callback(interaction)
+
+        channel.set_permissions.assert_awaited_once_with(
+            user_to_allow, connect=True
+        )
+        interaction.response.edit_message.assert_awaited_once()
+        msg = interaction.response.edit_message.call_args[1]["content"]
+        assert "許可" in msg
+        channel.send.assert_awaited_once()
+
+    async def test_allow_non_voice_channel(self) -> None:
+        """VoiceChannel でない場合は何もしない。"""
+        view = AllowSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+
+        select._values = [MagicMock(spec=discord.Member)]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+    async def test_allow_non_member(self) -> None:
+        """Member でない場合は何もしない。"""
+        view = AllowSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+
+        non_member = MagicMock(spec=discord.User)
+
+        select._values = [non_member]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+
+# ===========================================================================
+# TransferSelectMenu 追加エッジケーステスト
+# ===========================================================================
+
+
+class TestTransferSelectMenuEdgeCases:
+    """Edge case tests for TransferSelectMenu.callback."""
+
+    async def test_non_voice_channel_returns_early(self) -> None:
+        """VoiceChannel でない場合は何もしない。"""
+        options = [discord.SelectOption(label="User2", value="2")]
+        menu = TransferSelectMenu(options)
+        menu._values = ["2"]
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+
+        await menu.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+    async def test_no_guild_returns_early(self) -> None:
+        """ギルドがない場合は何もしない。"""
+        options = [discord.SelectOption(label="User2", value="2")]
+        menu = TransferSelectMenu(options)
+        menu._values = ["2"]
+
+        interaction = _make_interaction(user_id=1)
+        interaction.guild = None
+
+        await menu.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+
+# ===========================================================================
+# Lock ボタン — オーナー権限付与テスト
+# ===========================================================================
+
+
+class TestLockButtonOwnerPermissions:
+    """Tests for lock button granting owner full permissions."""
+
+    async def test_lock_grants_owner_full_permissions(self) -> None:
+        """ロック時にオーナーにフル権限が付与される。"""
+        view = ControlPanelView(session_id=1)
+        interaction = _make_interaction(user_id=1)
+        voice_session = _make_voice_session(
+            owner_id="1", is_locked=False
+        )
+
+        mock_factory, _ = _mock_async_session()
+        with patch(
+            "src.ui.control_panel.async_session", mock_factory
+        ), patch(
+            "src.ui.control_panel.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ), patch(
+            "src.ui.control_panel.update_voice_session",
+            new_callable=AsyncMock,
+        ):
+            await view.lock_button.callback(interaction)
+
+        # オーナーにフル権限が付与される
+        interaction.channel.set_permissions.assert_any_await(
+            interaction.user,
+            connect=True,
+            speak=True,
+            stream=True,
+            move_members=True,
+            mute_members=True,
+            deafen_members=True,
+        )
+
+
+# ===========================================================================
+# Hide ボタン — no-guild テスト
+# ===========================================================================
+
+
+class TestHideButtonNoGuild:
+    """Tests for hide button with no guild."""
+
+    async def test_no_guild_returns_early(self) -> None:
+        """ギルドがない場合は早期リターン。"""
+        view = ControlPanelView(session_id=1)
+        interaction = _make_interaction(user_id=1)
+        interaction.guild = None
+
+        await view.hide_button.callback(interaction)
+
+        interaction.response.send_message.assert_not_awaited()

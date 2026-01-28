@@ -22,7 +22,6 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.permissions import is_owner
 from src.database.engine import async_session
 from src.database.models import VoiceSession
 from src.services.db_service import (
@@ -422,8 +421,8 @@ class VoiceCog(commands.Cog):
     async def panel(self, interaction: discord.Interaction) -> None:
         """コントロールパネルの Embed + ボタンを再投稿するスラッシュコマンド。
 
-        旧パネルメッセージを削除し、新しいパネルを送信してピン留めする。
-        オーナーのみ実行可能。
+        旧パネルメッセージを削除し、新しいパネルを送信する。
+        一時 VC 内であれば誰でも実行可能。
         """
         channel = interaction.channel
         if not isinstance(channel, discord.VoiceChannel):
@@ -439,12 +438,6 @@ class VoiceCog(commands.Cog):
             if not voice_session:
                 await interaction.response.send_message(
                     "一時 VC が見つかりません。", ephemeral=True
-                )
-                return
-
-            if not is_owner(voice_session.owner_id, interaction.user.id):
-                await interaction.response.send_message(
-                    "チャンネルオーナーのみ使用できます。", ephemeral=True
                 )
                 return
 

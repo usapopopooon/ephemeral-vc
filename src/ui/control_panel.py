@@ -29,6 +29,43 @@ from src.database.engine import async_session
 from src.database.models import VoiceSession
 from src.services.db_service import get_voice_session, update_voice_session
 
+# パネルメッセージの Embed タイトル (検索用定数)
+_PANEL_TITLE = "ボイスチャンネル設定"
+
+
+async def _find_panel_message(
+    channel: discord.VoiceChannel,
+) -> discord.Message | None:
+    """チャンネル内のコントロールパネルメッセージを探す。
+
+    ピン留めメッセージを優先的に検索し、見つからなければ
+    チャンネル履歴から Bot の Embed メッセージを探す。
+    """
+    bot_user = channel.guild.me
+
+    # ピン留めメッセージから探す
+    with contextlib.suppress(discord.HTTPException):
+        pins = await channel.pins()
+        for msg in pins:
+            if (
+                msg.author == bot_user
+                and msg.embeds
+                and msg.embeds[0].title == _PANEL_TITLE
+            ):
+                return msg
+
+    # フォールバック: 履歴から探す (ピン留めされていないパネル)
+    with contextlib.suppress(discord.HTTPException):
+        async for hist_msg in channel.history(limit=50):
+            if (
+                hist_msg.author == bot_user
+                and hist_msg.embeds
+                and hist_msg.embeds[0].title == _PANEL_TITLE
+            ):
+                return hist_msg
+
+    return None
+
 
 def create_control_panel_embed(
     session: VoiceSession, owner: discord.Member
@@ -79,22 +116,16 @@ async def refresh_panel_embed(
 
         embed = create_control_panel_embed(voice_session, owner)
 
-        # ピン留めされたパネルメッセージを探して更新
-        pins = await channel.pins()
-        for msg in pins:
-            if (
-                msg.author == channel.guild.me
-                and msg.embeds
-                and msg.embeds[0].title == "ボイスチャンネル設定"
-            ):
-                view = ControlPanelView(
-                    voice_session.id,
-                    voice_session.is_locked,
-                    voice_session.is_hidden,
-                    channel.nsfw,
-                )
-                await msg.edit(embed=embed, view=view)
-                return
+        # パネルメッセージを探して更新 (ピン → 履歴の順)
+        panel_msg = await _find_panel_message(channel)
+        if panel_msg:
+            view = ControlPanelView(
+                voice_session.id,
+                voice_session.is_locked,
+                voice_session.is_hidden,
+                channel.nsfw,
+            )
+            await panel_msg.edit(embed=embed, view=view)
 
 
 async def repost_panel(
@@ -117,17 +148,11 @@ async def repost_panel(
         if not owner:
             return
 
-        # 旧パネル削除 (ピンから探す)
-        with contextlib.suppress(discord.HTTPException):
-            pins = await channel.pins()
-            for msg in pins:
-                if (
-                    msg.author == channel.guild.me
-                    and msg.embeds
-                    and msg.embeds[0].title == "ボイスチャンネル設定"
-                ):
-                    await msg.delete()
-                    break
+        # 旧パネル削除 (ピン → 履歴の順で探す)
+        old_panel = await _find_panel_message(channel)
+        if old_panel:
+            with contextlib.suppress(discord.HTTPException):
+                await old_panel.delete()
 
         # 新パネル送信 + ピン留め
         embed = create_control_panel_embed(voice_session, owner)
