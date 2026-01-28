@@ -593,24 +593,28 @@ class BumpCog(commands.Cog):
         # チャンネルの履歴から最近の bump を探す
         channel = interaction.channel
         recent_bump_info: str | None = None
+        detected_service: str | None = None
+        is_enabled = True
 
         if isinstance(channel, discord.TextChannel):
             result = await self._find_recent_bump(channel)
             if result:
                 service_name, bump_time = result
+                detected_service = service_name
                 remind_at = bump_time + timedelta(hours=REMINDER_HOURS)
                 now = datetime.now(UTC)
 
                 if remind_at > now:
                     # 次の bump まで待機中 → リマインダーを作成
                     async with async_session() as session:
-                        await upsert_bump_reminder(
+                        reminder = await upsert_bump_reminder(
                             session,
                             guild_id=guild_id,
                             channel_id=channel_id,
                             service_name=service_name,
                             remind_at=remind_at,
                         )
+                        is_enabled = reminder.is_enabled
                     ts = int(remind_at.timestamp())
                     recent_bump_info = (
                         f"\n\n**📊 直近の bump を検出:**\n"
@@ -639,7 +643,27 @@ class BumpCog(commands.Cog):
             timestamp=datetime.now(UTC),
         )
         embed.set_footer(text="Bump リマインダー")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        if detected_service:
+            # 直近の bump が検出された場合、そのサービスのボタンを表示
+            view = BumpNotificationView(guild_id, detected_service, is_enabled)
+            self.bot.add_view(view)
+            await interaction.response.send_message(embed=embed, view=view)
+        else:
+            # 検出されなかった場合、両方のサービスのボタンを表示
+            await interaction.response.send_message(embed=embed)
+            # DISBOARD 用
+            view_disboard = BumpNotificationView(guild_id, "DISBOARD", True)
+            self.bot.add_view(view_disboard)
+            await interaction.followup.send(
+                "**DISBOARD** の通知設定:", view=view_disboard
+            )
+            # ディス速報用
+            view_dissoku = BumpNotificationView(guild_id, "ディス速報", True)
+            self.bot.add_view(view_dissoku)
+            await interaction.followup.send(
+                "**ディス速報** の通知設定:", view=view_dissoku
+            )
         logger.info(
             "Bump monitoring enabled: guild=%s channel=%s",
             guild_id,
@@ -672,7 +696,7 @@ class BumpCog(commands.Cog):
                 color=discord.Color.blue(),
             )
             embed.set_footer(text="Bump リマインダー")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed)
         else:
             embed = discord.Embed(
                 title="Bump 監視設定",
@@ -683,7 +707,7 @@ class BumpCog(commands.Cog):
                 color=discord.Color.greyple(),
             )
             embed.set_footer(text="Bump リマインダー")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed)
 
     @bump_group.command(name="disable", description="bump 監視を停止する")
     async def bump_disable(self, interaction: discord.Interaction) -> None:
@@ -707,7 +731,7 @@ class BumpCog(commands.Cog):
                 timestamp=datetime.now(UTC),
             )
             embed.set_footer(text="Bump リマインダー")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed)
             logger.info("Bump monitoring disabled: guild=%s", guild_id)
         else:
             embed = discord.Embed(
@@ -716,7 +740,7 @@ class BumpCog(commands.Cog):
                 color=discord.Color.greyple(),
             )
             embed.set_footer(text="Bump リマインダー")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed)
 
 
 # BumpReminder の型ヒント用 (circular import 回避)

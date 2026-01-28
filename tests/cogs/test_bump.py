@@ -1324,6 +1324,8 @@ class TestBumpSetupCommand:
         mock_interaction.channel_id = 456
         mock_interaction.response = MagicMock()
         mock_interaction.response.send_message = AsyncMock()
+        mock_interaction.followup = MagicMock()
+        mock_interaction.followup.send = AsyncMock()
 
         mock_session = MagicMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -1340,8 +1342,6 @@ class TestBumpSetupCommand:
 
         mock_upsert.assert_awaited_once_with(mock_session, "12345", "456")
         mock_interaction.response.send_message.assert_awaited_once()
-        call_kwargs = mock_interaction.response.send_message.call_args[1]
-        assert call_kwargs["ephemeral"] is True
 
     async def test_setup_requires_guild(self) -> None:
         """ギルド外では実行できない。"""
@@ -1466,6 +1466,8 @@ class TestBumpSetupCommand:
         mock_interaction.channel_id = 456
         mock_interaction.response = MagicMock()
         mock_interaction.response.send_message = AsyncMock()
+        mock_interaction.followup = MagicMock()
+        mock_interaction.followup.send = AsyncMock()
 
         # TextChannel をモック
         mock_channel = MagicMock(spec=discord.TextChannel)
@@ -1499,6 +1501,9 @@ class TestBumpSetupCommand:
         assert "直近の bump を検出" not in embed.description
         assert "Bump 監視を開始しました" in embed.title
 
+        # 両方のサービスの通知設定が followup で送信される
+        assert mock_interaction.followup.send.await_count == 2
+
     async def test_setup_skips_history_for_non_text_channel(self) -> None:
         """TextChannel 以外ではチャンネル履歴をスキップする。"""
         cog = _make_cog()
@@ -1509,6 +1514,8 @@ class TestBumpSetupCommand:
         mock_interaction.channel_id = 456
         mock_interaction.response = MagicMock()
         mock_interaction.response.send_message = AsyncMock()
+        mock_interaction.followup = MagicMock()
+        mock_interaction.followup.send = AsyncMock()
 
         # VoiceChannel をモック (TextChannel ではない)
         mock_channel = MagicMock(spec=discord.VoiceChannel)
@@ -1576,7 +1583,6 @@ class TestBumpStatusCommand:
 
         mock_interaction.response.send_message.assert_awaited_once()
         call_kwargs = mock_interaction.response.send_message.call_args[1]
-        assert call_kwargs["ephemeral"] is True
         embed = call_kwargs["embed"]
         assert "<#456>" in embed.description
 
@@ -1606,7 +1612,6 @@ class TestBumpStatusCommand:
 
         mock_interaction.response.send_message.assert_awaited_once()
         call_kwargs = mock_interaction.response.send_message.call_args[1]
-        assert call_kwargs["ephemeral"] is True
         embed = call_kwargs["embed"]
         assert "設定されていません" in embed.description
 
@@ -1641,7 +1646,6 @@ class TestBumpDisableCommand:
         mock_delete.assert_awaited_once_with(mock_session, "12345")
         mock_interaction.response.send_message.assert_awaited_once()
         call_kwargs = mock_interaction.response.send_message.call_args[1]
-        assert call_kwargs["ephemeral"] is True
         embed = call_kwargs["embed"]
         assert "停止しました" in embed.title
 
@@ -1671,6 +1675,5 @@ class TestBumpDisableCommand:
 
         mock_interaction.response.send_message.assert_awaited_once()
         call_kwargs = mock_interaction.response.send_message.call_args[1]
-        assert call_kwargs["ephemeral"] is True
         embed = call_kwargs["embed"]
         assert "既に無効" in embed.description

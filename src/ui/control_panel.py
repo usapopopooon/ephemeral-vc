@@ -132,7 +132,7 @@ async def repost_panel(
     channel: discord.VoiceChannel,
     bot: commands.Bot,
 ) -> None:
-    """旧パネルを削除し、新しいパネルを送信してピン留めする。
+    """旧パネルを削除し、新しいパネルを送信する。
 
     refresh_panel_embed() が既存メッセージを edit で更新するのに対し、
     この関数はメッセージを削除→再作成する。オーナー譲渡時や /panel コマンドで使用。
@@ -154,7 +154,7 @@ async def repost_panel(
             with contextlib.suppress(discord.HTTPException):
                 await old_panel.delete()
 
-        # 新パネル送信 + ピン留め
+        # 新パネル送信
         embed = create_control_panel_embed(voice_session, owner)
         view = ControlPanelView(
             voice_session.id,
@@ -163,9 +163,7 @@ async def repost_panel(
             channel.nsfw,
         )
         bot.add_view(view)
-        new_msg = await channel.send(embed=embed, view=view)
-        with contextlib.suppress(discord.HTTPException):
-            await new_msg.pin()
+        await channel.send(embed=embed, view=view)
 
 
 # =============================================================================
