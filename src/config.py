@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # 0 の場合は Discord への送信をスキップし、ログ出力のみ行う
     health_channel_id: int = 0
 
+    # bump リマインダー用チャンネルの ID
+    # 0 の場合は bump リマインダー機能を無効化
+    bump_channel_id: int = 0
+
     @property
     def async_database_url(self) -> str:
         """DATABASE_URL を非同期ドライバ対応の形式に変換する。

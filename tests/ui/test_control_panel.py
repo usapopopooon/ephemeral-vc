@@ -1418,6 +1418,7 @@ class TestRepostPanel:
 
         # 新パネル送信
         new_msg = MagicMock()
+        new_msg.pin = AsyncMock()
         channel.send = AsyncMock(return_value=new_msg)
 
         voice_session = _make_voice_session(owner_id="1")
@@ -1443,6 +1444,8 @@ class TestRepostPanel:
         assert "view" in kwargs
         # View が bot に登録される
         bot.add_view.assert_called_once()
+        # 新パネルがピン留めされる
+        new_msg.pin.assert_awaited_once()
 
     async def test_skips_when_no_session(self) -> None:
         """セッションがなければ何もしない。"""
@@ -1497,7 +1500,9 @@ class TestRepostPanel:
         # ピンが空、履歴も空
         channel.pins = AsyncMock(return_value=[])
         channel.history = MagicMock(return_value=_AsyncIter([]))
-        channel.send = AsyncMock(return_value=MagicMock())
+        new_msg = MagicMock()
+        new_msg.pin = AsyncMock()
+        channel.send = AsyncMock(return_value=new_msg)
 
         voice_session = _make_voice_session(owner_id="1")
         bot = MagicMock()
@@ -1526,7 +1531,9 @@ class TestRepostPanel:
         owner = MagicMock(spec=discord.Member)
         channel.guild.get_member = MagicMock(return_value=owner)
 
-        channel.send = AsyncMock(return_value=MagicMock())
+        new_msg = MagicMock()
+        new_msg.pin = AsyncMock()
+        channel.send = AsyncMock(return_value=new_msg)
 
         voice_session = _make_voice_session(owner_id="1")
         bot = MagicMock()
@@ -1576,7 +1583,9 @@ class TestRepostPanel:
         channel.history = MagicMock(
             return_value=_AsyncIter([other_bot_msg, user_msg])
         )
-        channel.send = AsyncMock(return_value=MagicMock())
+        new_msg = MagicMock()
+        new_msg.pin = AsyncMock()
+        channel.send = AsyncMock(return_value=new_msg)
 
         voice_session = _make_voice_session(owner_id="1")
         bot = MagicMock()
@@ -1607,7 +1616,9 @@ class TestRepostPanel:
         channel.guild.get_member = MagicMock(return_value=owner)
         channel.pins = AsyncMock(return_value=[])
         channel.history = MagicMock(return_value=_AsyncIter([]))
-        channel.send = AsyncMock(return_value=MagicMock())
+        new_msg = MagicMock()
+        new_msg.pin = AsyncMock()
+        channel.send = AsyncMock(return_value=new_msg)
 
         voice_session = _make_voice_session(
             owner_id="1", is_locked=True, is_hidden=True
@@ -1653,7 +1664,9 @@ class TestRepostPanel:
         old_msg.delete = AsyncMock()
         channel.history = MagicMock(return_value=_AsyncIter([old_msg]))
 
-        channel.send = AsyncMock(return_value=MagicMock())
+        new_msg = MagicMock()
+        new_msg.pin = AsyncMock()
+        channel.send = AsyncMock(return_value=new_msg)
 
         voice_session = _make_voice_session(owner_id="1")
         bot = MagicMock()

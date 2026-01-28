@@ -27,6 +27,7 @@ class EphemeralVCBot(commands.Bot):
         intents.voice_states = True  # ボイスチャンネルの参加/退出イベントを受け取る
         intents.guilds = True  # サーバー情報 (ギルド) を取得する
         intents.members = True  # メンバー情報を取得する (特権 Intent、要 Portal 有効化)
+        intents.message_content = True  # メッセージ内容を取得する (bump 検知用)
 
         # command_prefix: テキストコマンドの接頭辞 (例: !help)
         # この Bot ではスラッシュコマンドを使うので、テキストコマンドはほぼ使わない
@@ -54,6 +55,7 @@ class EphemeralVCBot(commands.Bot):
         await self.load_extension("src.cogs.voice")
         await self.load_extension("src.cogs.admin")
         await self.load_extension("src.cogs.health")
+        await self.load_extension("src.cogs.bump")
 
         # 3. 永続 View の復元
         #    discord.py の View (ボタン等) は Bot が再起動すると動かなくなる。

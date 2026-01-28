@@ -8,10 +8,18 @@
         lobby = await get_lobby_by_channel_id(session, "123456")
 """
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models import Lobby, VoiceSession, VoiceSessionMember
+from src.database.models import (
+    BumpConfig,
+    BumpReminder,
+    Lobby,
+    VoiceSession,
+    VoiceSessionMember,
+)
 
 # =============================================================================
 # Lobby (ロビー) 操作
@@ -355,3 +363,272 @@ async def get_voice_session_members_ordered(
         .order_by(VoiceSessionMember.joined_at, VoiceSessionMember.user_id)
     )
     return list(result.scalars().all())
+
+
+# =============================================================================
+# BumpReminder (bump リマインダー) 操作
+# =============================================================================
+
+
+async def upsert_bump_reminder(
+    session: AsyncSession,
+    guild_id: str,
+    channel_id: str,
+    service_name: str,
+    remind_at: datetime,
+) -> BumpReminder:
+    """bump リマインダーを作成または更新する。
+
+    同じ guild_id + service_name の組み合わせが既に存在する場合は上書きする。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+        channel_id: リマインド通知を送信するチャンネルの ID
+        service_name: サービス名 ("DISBOARD" または "ディス速報")
+        remind_at: リマインドを送信する予定時刻 (UTC)
+
+    Returns:
+        作成または更新された BumpReminder オブジェクト
+    """
+    # 既存のレコードを検索
+    result = await session.execute(
+        select(BumpReminder).where(
+            BumpReminder.guild_id == guild_id,
+            BumpReminder.service_name == service_name,
+        )
+    )
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        # 既存レコードを更新
+        existing.channel_id = channel_id
+        existing.remind_at = remind_at
+        await session.commit()
+        await session.refresh(existing)
+        return existing
+
+    # 新規作成
+    reminder = BumpReminder(
+        guild_id=guild_id,
+        channel_id=channel_id,
+        service_name=service_name,
+        remind_at=remind_at,
+    )
+    session.add(reminder)
+    await session.commit()
+    await session.refresh(reminder)
+    return reminder
+
+
+async def get_due_bump_reminders(
+    session: AsyncSession,
+    now: datetime,
+) -> list[BumpReminder]:
+    """送信予定時刻を過ぎた有効な bump リマインダーを取得する。
+
+    Args:
+        session: DB セッション
+        now: 現在時刻 (UTC)
+
+    Returns:
+        remind_at <= now かつ is_enabled = True の BumpReminder のリスト
+    """
+    result = await session.execute(
+        select(BumpReminder).where(
+            BumpReminder.remind_at <= now,
+            BumpReminder.remind_at.isnot(None),
+            BumpReminder.is_enabled.is_(True),
+        )
+    )
+    return list(result.scalars().all())
+
+
+async def clear_bump_reminder(session: AsyncSession, reminder_id: int) -> bool:
+    """bump リマインダーの remind_at をクリアする。
+
+    リマインド送信後に呼ばれる。レコードは削除せず、remind_at を None にする。
+
+    Args:
+        session: DB セッション
+        reminder_id: クリアするリマインダーの ID
+
+    Returns:
+        クリアできたら True、見つからなければ False
+    """
+    result = await session.execute(
+        select(BumpReminder).where(BumpReminder.id == reminder_id)
+    )
+    reminder = result.scalar_one_or_none()
+    if reminder:
+        reminder.remind_at = None
+        await session.commit()
+        return True
+    return False
+
+
+async def get_bump_reminder(
+    session: AsyncSession,
+    guild_id: str,
+    service_name: str,
+) -> BumpReminder | None:
+    """guild_id と service_name で bump リマインダーを取得する。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+        service_name: サービス名 ("DISBOARD" または "ディス速報")
+
+    Returns:
+        見つかった BumpReminder、なければ None
+    """
+    result = await session.execute(
+        select(BumpReminder).where(
+            BumpReminder.guild_id == guild_id,
+            BumpReminder.service_name == service_name,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def toggle_bump_reminder(
+    session: AsyncSession,
+    guild_id: str,
+    service_name: str,
+) -> bool:
+    """bump リマインダーの有効/無効を切り替える。
+
+    レコードが存在しない場合は無効状態で新規作成する。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+        service_name: サービス名 ("DISBOARD" または "ディス速報")
+
+    Returns:
+        切り替え後の is_enabled 値
+    """
+    reminder = await get_bump_reminder(session, guild_id, service_name)
+
+    if reminder:
+        reminder.is_enabled = not reminder.is_enabled
+        await session.commit()
+        return reminder.is_enabled
+
+    # レコードがない場合は無効状態で新規作成
+    new_reminder = BumpReminder(
+        guild_id=guild_id,
+        channel_id="",  # 通知先は bump 検知時に設定される
+        service_name=service_name,
+        remind_at=None,
+        is_enabled=False,
+    )
+    session.add(new_reminder)
+    await session.commit()
+    return False
+
+
+async def update_bump_reminder_role(
+    session: AsyncSession,
+    guild_id: str,
+    service_name: str,
+    role_id: str | None,
+) -> bool:
+    """bump リマインダーの通知ロールを更新する。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+        service_name: サービス名 ("DISBOARD" または "ディス速報")
+        role_id: 新しい通知ロールの ID (None ならデフォルトロールに戻す)
+
+    Returns:
+        更新できたら True、レコードが見つからなければ False
+    """
+    reminder = await get_bump_reminder(session, guild_id, service_name)
+
+    if reminder:
+        reminder.role_id = role_id
+        await session.commit()
+        return True
+
+    return False
+
+
+# =============================================================================
+# BumpConfig (bump 監視設定) 操作
+# =============================================================================
+
+
+async def get_bump_config(
+    session: AsyncSession,
+    guild_id: str,
+) -> BumpConfig | None:
+    """ギルドの bump 監視設定を取得する。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+
+    Returns:
+        見つかった BumpConfig、なければ None
+    """
+    result = await session.execute(
+        select(BumpConfig).where(BumpConfig.guild_id == guild_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_bump_config(
+    session: AsyncSession,
+    guild_id: str,
+    channel_id: str,
+) -> BumpConfig:
+    """bump 監視設定を作成または更新する。
+
+    既に設定がある場合はチャンネル ID を上書きする。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+        channel_id: bump を監視するチャンネルの ID
+
+    Returns:
+        作成または更新された BumpConfig オブジェクト
+    """
+    existing = await get_bump_config(session, guild_id)
+
+    if existing:
+        existing.channel_id = channel_id
+        await session.commit()
+        await session.refresh(existing)
+        return existing
+
+    config = BumpConfig(guild_id=guild_id, channel_id=channel_id)
+    session.add(config)
+    await session.commit()
+    await session.refresh(config)
+    return config
+
+
+async def delete_bump_config(
+    session: AsyncSession,
+    guild_id: str,
+) -> bool:
+    """bump 監視設定を削除する。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+
+    Returns:
+        削除できたら True、見つからなければ False
+    """
+    config = await get_bump_config(session, guild_id)
+
+    if config:
+        await session.delete(config)
+        await session.commit()
+        return True
+
+    return False

@@ -7,6 +7,9 @@ Python オブジェクトとしてデータベースの行を操作できる。
 テーブル構成:
   - lobbies: ロビーVC の設定 (どのチャンネルがロビーか)
   - voice_sessions: 現在アクティブな一時 VC のセッション情報
+  - voice_session_members: 一時 VC の参加メンバー
+  - bump_reminders: bump リマインダー
+  - bump_configs: bump 監視の設定 (ギルドごと)
 """
 
 from datetime import UTC, datetime
@@ -167,4 +170,80 @@ class VoiceSessionMember(Base):
         return (
             f"<VoiceSessionMember(id={self.id}, session_id={self.voice_session_id}, "
             f"user_id={self.user_id}, joined_at={self.joined_at})>"
+        )
+
+
+class BumpReminder(Base):
+    """bump リマインダーテーブル。
+
+    DISBOARD/ディス速報の bump 後、2時間後にリマインドを送信するための情報を保存。
+    同じサーバー・サービスの組み合わせで1件のみ保持 (上書き更新)。
+
+    テーブル名: bump_reminders
+    """
+
+    __tablename__ = "bump_reminders"
+    __table_args__ = (
+        # 同じ guild + service の組み合わせは 1 件のみ
+        UniqueConstraint("guild_id", "service_name", name="uq_guild_service"),
+    )
+
+    # id: 自動採番の主キー
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # guild_id: Discord サーバーの ID
+    guild_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    # channel_id: bump 通知を送信するチャンネルの ID
+    channel_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    # service_name: サービス名 ("DISBOARD" または "ディス速報")
+    service_name: Mapped[str] = mapped_column(String, nullable=False)
+
+    # remind_at: リマインドを送信する予定時刻 (UTC)、None なら未設定
+    remind_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # is_enabled: 通知が有効かどうか (デフォルト True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # role_id: 通知先ロールの ID (None の場合はデフォルトの "Server Bumper" ロール)
+    role_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    def __repr__(self) -> str:
+        """デバッグ用の文字列表現。"""
+        return (
+            f"<BumpReminder(id={self.id}, guild_id={self.guild_id}, "
+            f"service={self.service_name}, remind_at={self.remind_at}, "
+            f"is_enabled={self.is_enabled}, role_id={self.role_id})>"
+        )
+
+
+class BumpConfig(Base):
+    """bump 監視の設定テーブル。
+
+    ギルドごとに bump を監視するチャンネルを設定する。
+    管理者が /bump setup コマンドで設定する。
+
+    テーブル名: bump_configs
+    """
+
+    __tablename__ = "bump_configs"
+
+    # guild_id: Discord サーバーの ID (主キー、1ギルド1設定)
+    guild_id: Mapped[str] = mapped_column(String, primary_key=True)
+
+    # channel_id: bump を監視するチャンネルの ID (リマインドもここに送信)
+    channel_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    # created_at: 設定作成日時 (UTC)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        """デバッグ用の文字列表現。"""
+        return (
+            f"<BumpConfig(guild_id={self.guild_id}, channel_id={self.channel_id})>"
         )

@@ -163,7 +163,9 @@ async def repost_panel(
             channel.nsfw,
         )
         bot.add_view(view)
-        await channel.send(embed=embed, view=view)
+        new_msg = await channel.send(embed=embed, view=view)
+        with contextlib.suppress(discord.HTTPException):
+            await new_msg.pin()
 
 
 # =============================================================================

@@ -1,4 +1,4 @@
-.PHONY: setup install dev test lint typecheck run clean
+.PHONY: setup install dev test test-db test-db-start test-db-stop lint typecheck ci run clean
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -38,3 +38,31 @@ clean:
 	rm -rf .coverage
 	rm -rf htmlcov
 	find . -type d -name "__pycache__" -exec rm -rf {} +
+
+# PostgreSQL を使ったテスト
+test-db: setup
+	./scripts/test-with-db.sh --cov --cov-report=term-missing
+
+test-db-start:
+	docker compose -f docker-compose.test.yml up -d
+	@echo "Waiting for PostgreSQL..."
+	@until docker compose -f docker-compose.test.yml exec -T test-db pg_isready -U test_user -d discord_util_bot_test > /dev/null 2>&1; do sleep 1; done
+	@echo "PostgreSQL is ready at localhost:5432"
+
+test-db-stop:
+	docker compose -f docker-compose.test.yml down
+
+# CI チェック (GitHub Actions と同じ)
+ci: setup
+	@echo "=== YAML Lint ==="
+	yamllint -s .
+	@echo "=== TOML Check ==="
+	taplo check pyproject.toml
+	@echo "=== Ruff Lint ==="
+	$(VENV)/bin/ruff check src tests alembic
+	@echo "=== Type Check ==="
+	$(VENV)/bin/mypy src
+	@echo "=== All CI checks passed! ==="
+
+# CI チェック + DB テスト (完全な CI)
+ci-full: ci test-db

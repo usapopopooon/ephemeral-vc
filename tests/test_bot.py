@@ -98,7 +98,7 @@ class TestSetupHook:
     async def test_loads_all_cogs(
         self, _init_db: AsyncMock, mock_session_factory: MagicMock
     ) -> None:
-        """3つの Cog がすべて読み込まれる。"""
+        """4つの Cog がすべて読み込まれる。"""
         mock_session_factory.return_value.__aenter__ = AsyncMock(
             return_value=AsyncMock()
         )
@@ -119,10 +119,11 @@ class TestSetupHook:
         ):
             await bot.setup_hook()
 
-        assert bot.load_extension.await_count == 3
+        assert bot.load_extension.await_count == 4
         bot.load_extension.assert_any_await("src.cogs.voice")
         bot.load_extension.assert_any_await("src.cogs.admin")
         bot.load_extension.assert_any_await("src.cogs.health")
+        bot.load_extension.assert_any_await("src.cogs.bump")
 
     @patch("src.bot.async_session")
     @patch("src.bot.init_db", new_callable=AsyncMock)
