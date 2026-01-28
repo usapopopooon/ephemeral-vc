@@ -27,9 +27,9 @@ echo "PostgreSQL is ready!"
 # テスト実行
 echo "Running tests..."
 DISCORD_TOKEN=test-token \
-TEST_DATABASE_URL=postgresql+asyncpg://test_user:test_pass@localhost/discord_util_bot_test \
-TEST_DATABASE_URL_SYNC=postgresql://test_user:test_pass@localhost/discord_util_bot_test \
-pytest "$@"
+TEST_DATABASE_URL=postgresql+asyncpg://test_user:test_pass@localhost:5432/discord_util_bot_test \
+TEST_DATABASE_URL_SYNC=postgresql://test_user:test_pass@localhost:5432/discord_util_bot_test \
+.venv/bin/python -m pytest "$@"
 
 TEST_EXIT_CODE=$?
 

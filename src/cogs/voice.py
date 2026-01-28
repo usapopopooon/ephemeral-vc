@@ -99,6 +99,10 @@ class VoiceCog(commands.Cog):
         ):
             # ロビーに参加した場合は一時 VC を作成する
             await self._handle_lobby_join(member, after.channel)
+            # ロック/人数制限のチェック (違反者はキック)
+            if await self._enforce_channel_restrictions(member, after.channel):
+                # キックされた場合は以降の処理をスキップ
+                return
             # 参加時刻を記録 (キャッシュ + DB)
             self._record_join_cache(after.channel.id, member.id)
             await self._record_join_to_db(after.channel.id, member.id)
@@ -228,6 +232,88 @@ class VoiceCog(commands.Cog):
             return None
         remaining.sort(key=lambda m: (records.get(m.id, float("inf")), m.id))
         return remaining[0]
+
+    # ==========================================================================
+    # 入室制限の強制
+    # ==========================================================================
+
+    async def _enforce_channel_restrictions(
+        self, member: discord.Member, channel: discord.VoiceChannel
+    ) -> bool:
+        """一時 VC のロック/人数制限を強制する。
+
+        「メンバーを移動」権限を持つユーザーは Discord の仕様上、
+        connect=False のチャンネルにも入室できてしまう。
+        このメソッドでは、Administrator 権限を持たないユーザーが
+        制限を回避して入室した場合にキックする。
+
+        Args:
+            member: 参加したメンバー
+            channel: 参加先のボイスチャンネル
+
+        Returns:
+            True: キックした (呼び出し元で後続処理をスキップすべき)
+            False: キックしなかった (正常な入室)
+        """
+        # Bot 自身は除外
+        if member.bot:
+            return False
+
+        # Administrator 権限を持つユーザーは制限なし
+        if member.guild_permissions.administrator:
+            return False
+
+        async with async_session() as session:
+            voice_session = await get_voice_session(session, str(channel.id))
+            if not voice_session:
+                # 一時 VC ではない (ロビーなど)
+                return False
+
+            # オーナーは制限なし
+            if str(member.id) == voice_session.owner_id:
+                return False
+
+            should_kick = False
+            reason = ""
+
+            # --- ロックチェック ---
+            if voice_session.is_locked:
+                # チャンネル権限で明示的に connect=True が設定されているか確認
+                overwrites = channel.overwrites_for(member)
+                if overwrites.connect is not True:
+                    # 許可されていない → キック
+                    should_kick = True
+                    reason = "ロックされているため"
+
+            # --- 人数制限チェック ---
+            # ロックで既にキック対象なら重複チェック不要
+            if not should_kick and voice_session.user_limit > 0:
+                # 現在の人数 (参加者本人を含む)
+                current_count = len([m for m in channel.members if not m.bot])
+                if current_count > voice_session.user_limit:
+                    # チャンネル権限で明示的に connect=True が設定されているか確認
+                    overwrites = channel.overwrites_for(member)
+                    if overwrites.connect is not True:
+                        should_kick = True
+                        reason = "人数制限を超えているため"
+
+            if should_kick:
+                # キック実行
+                with contextlib.suppress(discord.HTTPException):
+                    await member.move_to(None)
+                # チャンネルに通知
+                with contextlib.suppress(discord.HTTPException):
+                    await channel.send(
+                        f"⚠️ {member.mention} は{reason}入室できません。"
+                    )
+                # DM で本人に通知
+                with contextlib.suppress(discord.HTTPException, discord.Forbidden):
+                    await member.send(
+                        f"⚠️ **{channel.name}** は{reason}入室できませんでした。"
+                    )
+                return True
+
+        return False
 
     # ==========================================================================
     # ロビー参加処理

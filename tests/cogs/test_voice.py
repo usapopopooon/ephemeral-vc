@@ -1591,3 +1591,321 @@ class TestOnVoiceStateUpdateEdgeCases:
         await cog.on_voice_state_update(member, before, after)
 
         cog._handle_channel_leave.assert_not_awaited()
+
+
+# ===========================================================================
+# _enforce_channel_restrictions テスト
+# ===========================================================================
+
+
+class TestEnforceChannelRestrictions:
+    """Tests for _enforce_channel_restrictions (ロック/人数制限の強制)."""
+
+    async def test_allows_bot_users(self) -> None:
+        """Bot ユーザーは常に許可される。"""
+        cog = _make_cog()
+        member = _make_member(1, bot=True)
+        channel = _make_channel(100)
+
+        result = await cog._enforce_channel_restrictions(member, channel)
+
+        assert result is False
+
+    async def test_allows_administrators(self) -> None:
+        """Administrator 権限を持つユーザーは常に許可される。"""
+        cog = _make_cog()
+        member = _make_member(1)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = True
+        channel = _make_channel(100)
+
+        voice_session = _make_voice_session(
+            channel_id="100", owner_id="999", is_locked=True
+        )
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        assert result is False
+
+    async def test_allows_owner(self) -> None:
+        """オーナーは常に許可される。"""
+        cog = _make_cog()
+        member = _make_member(1)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        channel = _make_channel(100)
+
+        voice_session = _make_voice_session(
+            channel_id="100", owner_id="1", is_locked=True
+        )
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        assert result is False
+
+    async def test_kicks_non_permitted_user_on_locked_channel(self) -> None:
+        """ロックされた VC に許可されていないユーザーが入るとキックされる。"""
+        cog = _make_cog()
+        member = _make_member(2)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        member.move_to = AsyncMock()
+        member.send = AsyncMock()  # DM 送信用
+        channel = _make_channel(100)
+        channel.name = "Test Channel"
+        channel.send = AsyncMock()
+        # connect 権限が設定されていない
+        overwrites = MagicMock()
+        overwrites.connect = None
+        channel.overwrites_for = MagicMock(return_value=overwrites)
+
+        voice_session = _make_voice_session(
+            channel_id="100", owner_id="1", is_locked=True
+        )
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        assert result is True
+        member.move_to.assert_awaited_once_with(None)
+        channel.send.assert_awaited_once()  # チャンネルに通知
+        member.send.assert_awaited_once()   # DM で通知
+
+    async def test_allows_permitted_user_on_locked_channel(self) -> None:
+        """ロックされた VC でも connect=True が設定されていれば許可される。"""
+        cog = _make_cog()
+        member = _make_member(2)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        channel = _make_channel(100)
+        # connect=True が設定されている
+        overwrites = MagicMock()
+        overwrites.connect = True
+        channel.overwrites_for = MagicMock(return_value=overwrites)
+
+        voice_session = _make_voice_session(
+            channel_id="100", owner_id="1", is_locked=True
+        )
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        assert result is False
+
+    async def test_kicks_user_exceeding_limit(self) -> None:
+        """人数制限を超えた場合、許可されていないユーザーはキックされる。"""
+        cog = _make_cog()
+        member = _make_member(3)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        member.move_to = AsyncMock()
+        member.send = AsyncMock()  # DM 送信用
+        # 既に 2 人いる (+ 参加者で 3 人、制限は 2)
+        m1 = _make_member(1)
+        m2 = _make_member(2)
+        channel = _make_channel(100, [m1, m2, member])
+        channel.name = "Test Channel"
+        channel.send = AsyncMock()
+        overwrites = MagicMock()
+        overwrites.connect = None
+        channel.overwrites_for = MagicMock(return_value=overwrites)
+
+        voice_session = _make_voice_session(channel_id="100", owner_id="1")
+        voice_session.user_limit = 2
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        assert result is True
+        member.move_to.assert_awaited_once_with(None)
+        channel.send.assert_awaited_once()  # チャンネルに通知
+        member.send.assert_awaited_once()   # DM で通知
+
+    async def test_allows_permitted_user_exceeding_limit(self) -> None:
+        """人数制限を超えていても connect=True が設定されていれば許可される。"""
+        cog = _make_cog()
+        member = _make_member(3)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        m1 = _make_member(1)
+        m2 = _make_member(2)
+        channel = _make_channel(100, [m1, m2, member])
+        # connect=True が設定されている
+        overwrites = MagicMock()
+        overwrites.connect = True
+        channel.overwrites_for = MagicMock(return_value=overwrites)
+
+        voice_session = _make_voice_session(channel_id="100", owner_id="1")
+        voice_session.user_limit = 2
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        assert result is False
+
+    async def test_skips_non_voice_session(self) -> None:
+        """一時 VC ではないチャンネルは制限チェックをスキップする。"""
+        cog = _make_cog()
+        member = _make_member(1)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        channel = _make_channel(100)
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        assert result is False
+
+    async def test_kick_succeeds_even_if_dm_fails(self) -> None:
+        """DM 送信が失敗してもキックは成功する。"""
+        cog = _make_cog()
+        member = _make_member(2)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        member.move_to = AsyncMock()
+        member.send = AsyncMock(side_effect=discord.Forbidden(
+            MagicMock(status=403), "Cannot send DM"
+        ))
+        channel = _make_channel(100)
+        channel.name = "Test Channel"
+        channel.send = AsyncMock()
+        overwrites = MagicMock()
+        overwrites.connect = None
+        channel.overwrites_for = MagicMock(return_value=overwrites)
+
+        voice_session = _make_voice_session(
+            channel_id="100", owner_id="1", is_locked=True
+        )
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        # DM が失敗してもキックは成功
+        assert result is True
+        member.move_to.assert_awaited_once_with(None)
+        channel.send.assert_awaited_once()
+
+    async def test_kick_succeeds_even_if_channel_send_fails(self) -> None:
+        """チャンネル送信が失敗してもキックは成功する。"""
+        cog = _make_cog()
+        member = _make_member(2)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        member.move_to = AsyncMock()
+        member.send = AsyncMock()
+        channel = _make_channel(100)
+        channel.name = "Test Channel"
+        channel.send = AsyncMock(side_effect=discord.HTTPException(
+            MagicMock(status=500), "Server error"
+        ))
+        overwrites = MagicMock()
+        overwrites.connect = None
+        channel.overwrites_for = MagicMock(return_value=overwrites)
+
+        voice_session = _make_voice_session(
+            channel_id="100", owner_id="1", is_locked=True
+        )
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            result = await cog._enforce_channel_restrictions(member, channel)
+
+        # チャンネル送信が失敗してもキックは成功
+        assert result is True
+        member.move_to.assert_awaited_once_with(None)
+
+
+# ===========================================================================
+# on_voice_state_update と制限チェックの統合テスト
+# ===========================================================================
+
+
+class TestVoiceStateUpdateWithRestrictions:
+    """on_voice_state_update での制限チェック統合テスト。"""
+
+    async def test_skips_join_recording_when_kicked(self) -> None:
+        """制限違反でキックされた場合、参加記録がスキップされる。"""
+        cog = _make_cog()
+        member = _make_member(2)
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        member.move_to = AsyncMock()
+        member.send = AsyncMock()
+
+        channel = _make_channel(100)
+        channel.name = "Test Channel"
+        channel.send = AsyncMock()
+        overwrites = MagicMock()
+        overwrites.connect = None
+        channel.overwrites_for = MagicMock(return_value=overwrites)
+
+        before = MagicMock(spec=discord.VoiceState)
+        before.channel = None
+        after = MagicMock(spec=discord.VoiceState)
+        after.channel = channel
+
+        voice_session = _make_voice_session(
+            channel_id="100", owner_id="1", is_locked=True
+        )
+
+        mock_factory, _ = _mock_async_session()
+        with patch("src.cogs.voice.async_session", mock_factory), patch(
+            "src.cogs.voice.get_lobby_by_channel_id",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "src.cogs.voice.get_voice_session",
+            new_callable=AsyncMock,
+            return_value=voice_session,
+        ):
+            await cog.on_voice_state_update(member, before, after)
+
+        # キックされたので参加記録がない
+        assert 2 not in cog._join_times.get(100, {})
+        member.move_to.assert_awaited_once_with(None)
