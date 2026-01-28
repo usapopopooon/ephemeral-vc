@@ -62,10 +62,18 @@ class EphemeralVCBot(commands.Bot):
         async with async_session() as session:
             sessions = await get_all_voice_sessions(session)
             for voice_session in sessions:
+                # NSFW 状態は DB に保存していないため、チャンネルから取得する
+                # setup_hook 時点ではキャッシュが空の場合があるため、
+                # 取得できなければデフォルト値 False を使う
+                is_nsfw = False
+                channel = self.get_channel(int(voice_session.channel_id))
+                if isinstance(channel, discord.VoiceChannel):
+                    is_nsfw = channel.nsfw
                 view = ControlPanelView(
                     voice_session.id,
                     voice_session.is_locked,
                     voice_session.is_hidden,
+                    is_nsfw,
                 )
                 # add_view() で Bot にビューを登録する。
                 # custom_id が一致するボタンのクリックイベントが届くようになる。

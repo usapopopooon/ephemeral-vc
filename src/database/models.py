@@ -11,7 +11,7 @@ Python オブジェクトとしてデータベースの行を操作できる。
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -128,4 +128,43 @@ class VoiceSession(Base):
         return (
             f"<VoiceSession(id={self.id}, channel_id={self.channel_id}, "
             f"owner_id={self.owner_id})>"
+        )
+
+
+class VoiceSessionMember(Base):
+    """一時 VC に参加しているメンバーの情報テーブル。
+
+    各メンバーの参加時刻を記録し、オーナー引き継ぎ時の優先順位を決定する。
+    Bot 再起動後も参加順序が保持される。
+
+    テーブル名: voice_session_members
+    """
+
+    __tablename__ = "voice_session_members"
+    __table_args__ = (
+        # 同じ VC セッションに同じユーザーは 1 回だけ
+        UniqueConstraint("voice_session_id", "user_id", name="uq_session_user"),
+    )
+
+    # id: 自動採番の主キー
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # voice_session_id: 親 VoiceSession への外部キー
+    voice_session_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("voice_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # user_id: メンバーの Discord ユーザー ID
+    user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    # joined_at: メンバーがこの VC に参加した日時 (UTC)
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        """デバッグ用の文字列表現。"""
+        return (
+            f"<VoiceSessionMember(id={self.id}, session_id={self.voice_session_id}, "
+            f"user_id={self.user_id}, joined_at={self.joined_at})>"
         )

@@ -167,10 +167,12 @@ class TestSetupHook:
 
         vs1 = MagicMock()
         vs1.id = 1
+        vs1.channel_id = "100"
         vs1.is_locked = False
         vs1.is_hidden = False
         vs2 = MagicMock()
         vs2.id = 2
+        vs2.channel_id = "200"
         vs2.is_locked = True
         vs2.is_hidden = True
 
@@ -188,6 +190,49 @@ class TestSetupHook:
             await bot.setup_hook()
 
         assert bot.add_view.call_count == 2
+
+    @patch("src.bot.async_session")
+    @patch("src.bot.init_db", new_callable=AsyncMock)
+    async def test_restores_views_with_nsfw_channel(
+        self, _init_db: AsyncMock, mock_session_factory: MagicMock
+    ) -> None:
+        """NSFW チャンネルの場合、is_nsfw=True で View が復元される。"""
+        mock_session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=AsyncMock()
+        )
+        mock_session_factory.return_value.__aexit__ = AsyncMock(
+            return_value=False
+        )
+
+        vs = MagicMock()
+        vs.id = 1
+        vs.channel_id = "100"
+        vs.is_locked = False
+        vs.is_hidden = False
+
+        # NSFW チャンネルをモック
+        nsfw_channel = MagicMock(spec=discord.VoiceChannel)
+        nsfw_channel.nsfw = True
+
+        bot = self._make_bot()
+        bot.get_channel = MagicMock(return_value=nsfw_channel)
+        mock_tree = MagicMock()
+        mock_tree.sync = AsyncMock()
+
+        with patch.object(
+            type(bot), "tree", new_callable=PropertyMock, return_value=mock_tree
+        ), patch(
+            "src.bot.get_all_voice_sessions",
+            new_callable=AsyncMock,
+            return_value=[vs],
+        ), patch(
+            "src.bot.ControlPanelView"
+        ) as mock_view_class:
+            await bot.setup_hook()
+
+        # is_nsfw=True で View が作成されることを確認
+        mock_view_class.assert_called_once_with(1, False, False, True)
+        bot.get_channel.assert_called_once_with(100)
 
     @patch("src.bot.async_session")
     @patch("src.bot.init_db", new_callable=AsyncMock)

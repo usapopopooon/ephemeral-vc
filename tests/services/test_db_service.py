@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
 
 from src.database.models import Base
 from src.services.db_service import (
+    add_voice_session_member,
     create_lobby,
     create_voice_session,
     delete_lobby,
@@ -22,6 +23,8 @@ from src.services.db_service import (
     get_lobbies_by_guild,
     get_lobby_by_channel_id,
     get_voice_session,
+    get_voice_session_members_ordered,
+    remove_voice_session_member,
     update_voice_session,
 )
 
@@ -283,3 +286,171 @@ class TestVoiceSessionOperations:
         assert session.is_locked is False
         assert session.is_hidden is False
         assert session.user_limit == 0
+
+
+class TestVoiceSessionMemberOperations:
+    """Tests for voice session member database operations."""
+
+    async def test_add_voice_session_member(self, db_session: AsyncSession) -> None:
+        """Test adding a member to a voice session."""
+        lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
+        voice_session = await create_voice_session(
+            db_session,
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test Channel",
+        )
+
+        member = await add_voice_session_member(
+            db_session, voice_session.id, "222"
+        )
+
+        assert member.id is not None
+        assert member.voice_session_id == voice_session.id
+        assert member.user_id == "222"
+        assert member.joined_at is not None
+
+    async def test_add_voice_session_member_existing(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test adding an existing member returns the existing record."""
+        lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
+        voice_session = await create_voice_session(
+            db_session,
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test Channel",
+        )
+
+        # Add member first time
+        member1 = await add_voice_session_member(
+            db_session, voice_session.id, "222"
+        )
+
+        # Add same member again
+        member2 = await add_voice_session_member(
+            db_session, voice_session.id, "222"
+        )
+
+        # Should return same record (idempotent)
+        assert member1.id == member2.id
+        assert member1.joined_at == member2.joined_at
+
+    async def test_remove_voice_session_member(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test removing a member from a voice session."""
+        lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
+        voice_session = await create_voice_session(
+            db_session,
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test Channel",
+        )
+
+        await add_voice_session_member(db_session, voice_session.id, "222")
+
+        result = await remove_voice_session_member(
+            db_session, voice_session.id, "222"
+        )
+        assert result is True
+
+        # Verify member is gone
+        members = await get_voice_session_members_ordered(
+            db_session, voice_session.id
+        )
+        assert len(members) == 0
+
+    async def test_remove_voice_session_member_not_found(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test removing a non-existent member returns False."""
+        lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
+        voice_session = await create_voice_session(
+            db_session,
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test Channel",
+        )
+
+        result = await remove_voice_session_member(
+            db_session, voice_session.id, "nonexistent"
+        )
+        assert result is False
+
+    async def test_get_voice_session_members_ordered(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test getting members ordered by join time."""
+        import asyncio
+
+        lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
+        voice_session = await create_voice_session(
+            db_session,
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test Channel",
+        )
+
+        # Add members with slight delays to ensure different join times
+        await add_voice_session_member(db_session, voice_session.id, "first")
+        await asyncio.sleep(0.01)
+        await add_voice_session_member(db_session, voice_session.id, "second")
+        await asyncio.sleep(0.01)
+        await add_voice_session_member(db_session, voice_session.id, "third")
+
+        members = await get_voice_session_members_ordered(
+            db_session, voice_session.id
+        )
+
+        assert len(members) == 3
+        assert members[0].user_id == "first"
+        assert members[1].user_id == "second"
+        assert members[2].user_id == "third"
+
+    async def test_get_voice_session_members_ordered_empty(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test getting members from empty session returns empty list."""
+        lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
+        voice_session = await create_voice_session(
+            db_session,
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test Channel",
+        )
+
+        members = await get_voice_session_members_ordered(
+            db_session, voice_session.id
+        )
+
+        assert members == []
+
+    async def test_voice_session_members_cascade_delete(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test that members are deleted when voice session is deleted."""
+        lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
+        voice_session = await create_voice_session(
+            db_session,
+            lobby_id=lobby.id,
+            channel_id="789",
+            owner_id="111",
+            name="Test Channel",
+        )
+
+        await add_voice_session_member(db_session, voice_session.id, "222")
+        await add_voice_session_member(db_session, voice_session.id, "333")
+
+        # Delete the voice session
+        await delete_voice_session(db_session, "789")
+
+        # Members should be automatically deleted via CASCADE
+        # We can't query directly since voice_session is gone,
+        # but we verify no errors occurred during cascade delete

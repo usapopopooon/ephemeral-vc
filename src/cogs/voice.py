@@ -25,11 +25,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.engine import async_session
 from src.database.models import VoiceSession
 from src.services.db_service import (
+    add_voice_session_member,
     create_voice_session,
     delete_lobby,
     delete_voice_session,
     get_lobby_by_channel_id,
     get_voice_session,
+    get_voice_session_members_ordered,
+    remove_voice_session_member,
     update_voice_session,
 )
 from src.ui.control_panel import (
@@ -51,14 +54,13 @@ class VoiceCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        # --- 参加時刻の追跡 ---
-        # オーナー退出時に「最も長くいるメンバー」を特定するために使う。
+        # --- 参加時刻のメモリキャッシュ ---
+        # DB 読み込み頻度を減らすためのキャッシュ。
         # 構造: {チャンネルID: {ユーザーID: 参加時刻(monotonic)}}
         # time.monotonic() はシステム起動からの秒数で、時計の変更に影響されない。
         #
-        # 注意: この dict はメモリ上のみに保持される。Bot 再起動時に全記録が消え、
-        # 引き継ぎ先の判定ができなくなる。その場合 _get_longest_member() の
-        # float("inf") フォールバックにより channel.members の順序で選ばれる。
+        # 注意: Bot 再起動時にキャッシュは消えるが、DB にも保存されているため
+        # _get_longest_member_from_db() で正確な順序を取得できる。
         self._join_times: dict[int, dict[int, float]] = {}
 
     # ==========================================================================
@@ -95,8 +97,9 @@ class VoiceCog(commands.Cog):
         ):
             # ロビーに参加した場合は一時 VC を作成する
             await self._handle_lobby_join(member, after.channel)
-            # 参加時刻を記録 (オーナー引き継ぎの判定用)
-            self._record_join(after.channel.id, member.id)
+            # 参加時刻を記録 (キャッシュ + DB)
+            self._record_join_cache(after.channel.id, member.id)
+            await self._record_join_to_db(after.channel.id, member.id)
 
         # --- 退出処理 ---
         # before.channel が存在し、かつ after と異なる = チャンネルから退出した
@@ -105,8 +108,9 @@ class VoiceCog(commands.Cog):
             and before.channel != after.channel
             and isinstance(before.channel, discord.VoiceChannel)
         ):
-            # 参加時刻の記録を削除
-            self._remove_join(before.channel.id, member.id)
+            # 参加時刻の記録を削除 (キャッシュ + DB)
+            self._remove_join_cache(before.channel.id, member.id)
+            await self._remove_join_from_db(before.channel.id, member.id)
             # 一時 VC の退出処理 (空なら削除、オーナー退出なら引き継ぎ)
             await self._handle_channel_leave(member, before.channel)
 
@@ -122,8 +126,8 @@ class VoiceCog(commands.Cog):
         """
         if not isinstance(channel, discord.VoiceChannel):
             return
-        # メモリ上の参加記録を削除
-        self._cleanup_channel(channel.id)
+        # メモリキャッシュの参加記録を削除
+        self._cleanup_channel_cache(channel.id)
         # DB のレコードをクリーンアップ (存在しなくても安全)
         async with async_session() as session:
             await delete_voice_session(session, str(channel.id))
@@ -136,49 +140,91 @@ class VoiceCog(commands.Cog):
     # 参加時刻の追跡ヘルパー
     # ==========================================================================
 
-    def _record_join(self, channel_id: int, user_id: int) -> None:
-        """メンバーがチャンネルに参加した時刻を記録する。
+    def _record_join_cache(self, channel_id: int, user_id: int) -> None:
+        """メンバーの参加時刻をメモリキャッシュに記録する。
 
         setdefault() を使い、既に記録がある場合は上書きしない。
-        これにより、別チャンネルから移動してきた場合も最初の参加時刻を保持する。
         """
         channel_times = self._join_times.setdefault(channel_id, {})
         channel_times.setdefault(user_id, time.monotonic())
 
-    def _remove_join(self, channel_id: int, user_id: int) -> None:
-        """メンバーの参加記録を削除する。退出時に呼ばれる。"""
+    def _remove_join_cache(self, channel_id: int, user_id: int) -> None:
+        """メンバーの参加記録をメモリキャッシュから削除する。"""
         if channel_id in self._join_times:
             self._join_times[channel_id].pop(user_id, None)
 
-    def _cleanup_channel(self, channel_id: int) -> None:
-        """チャンネルの全参加記録を削除する。チャンネル削除時に呼ぶ。"""
+    def _cleanup_channel_cache(self, channel_id: int) -> None:
+        """チャンネルの全参加記録をメモリキャッシュから削除する。"""
         self._join_times.pop(channel_id, None)
 
-    def _get_longest_member(
-        self, channel: discord.VoiceChannel, exclude_id: int
+    async def _record_join_to_db(self, channel_id: int, user_id: int) -> None:
+        """メンバーの参加時刻を DB に記録する。
+
+        チャンネルが一時 VC の場合のみ記録する。
+        """
+        async with async_session() as session:
+            voice_session = await get_voice_session(session, str(channel_id))
+            if voice_session:
+                await add_voice_session_member(
+                    session, voice_session.id, str(user_id)
+                )
+
+    async def _remove_join_from_db(self, channel_id: int, user_id: int) -> None:
+        """メンバーの参加記録を DB から削除する。
+
+        チャンネルが一時 VC の場合のみ削除する。
+        """
+        async with async_session() as session:
+            voice_session = await get_voice_session(session, str(channel_id))
+            if voice_session:
+                await remove_voice_session_member(
+                    session, voice_session.id, str(user_id)
+                )
+
+    async def _get_longest_member(
+        self,
+        session: AsyncSession,
+        voice_session: VoiceSession,
+        channel: discord.VoiceChannel,
+        exclude_id: int,
     ) -> discord.Member | None:
         """チャンネル内で最も長く滞在しているメンバーを取得する。
 
-        オーナー退出時の引き継ぎ先を決定するために使う。
-        Bot ユーザーは候補から除外する (not m.bot)。
+        DB から参加時刻の順序を取得するため、Bot 再起動後も正確に動作する。
+        Bot ユーザーは候補から除外する。
 
         Args:
+            session: DB セッション
+            voice_session: 対象の VoiceSession
             channel: 対象のボイスチャンネル
             exclude_id: 除外するユーザー ID (退出するオーナー)
 
         Returns:
             最も長く滞在しているメンバー。誰もいなければ None
         """
+        # DB から参加順にソートされたメンバーリストを取得
+        db_members = await get_voice_session_members_ordered(session, voice_session.id)
+
+        # チャンネルに実際にいるメンバーの ID セット (Bot 除外、退出者除外)
+        present_ids = {
+            m.id for m in channel.members if m.id != exclude_id and not m.bot
+        }
+
+        # DB の順序を維持しながら、実際にいるメンバーのみをフィルタ
+        for db_member in db_members:
+            user_id = int(db_member.user_id)
+            if user_id in present_ids:
+                # guild.get_member() で discord.Member オブジェクトを取得
+                member = channel.guild.get_member(user_id)
+                if member:
+                    return member
+
+        # DB に記録がない場合のフォールバック (キャッシュを使用)
         records = self._join_times.get(channel.id, {})
-        # Bot を除外し、退出するオーナーも除外
         remaining = [m for m in channel.members if m.id != exclude_id and not m.bot]
         if not remaining:
             return None
-        # 参加時刻 (monotonic) が小さい = 先に参加した = 最も長くいる
-        # 記録が無いメンバーは inf (最後尾) にする。
-        # Bot 再起動直後は全員 inf になるが、sort は安定なので
-        # channel.members の元の順序で先頭メンバーが選ばれる。
-        remaining.sort(key=lambda m: records.get(m.id, float("inf")))
+        remaining.sort(key=lambda m: (records.get(m.id, float("inf")), m.id))
         return remaining[0]
 
     # ==========================================================================
@@ -240,6 +286,10 @@ class VoiceCog(commands.Cog):
                     owner_id=str(member.id),
                     name=channel_name,
                     user_limit=lobby.default_user_limit,
+                )
+                # オーナーを最初のメンバーとして DB に登録
+                await add_voice_session_member(
+                    session, voice_session.id, str(member.id)
                 )
             except Exception:
                 await new_channel.delete()
@@ -312,8 +362,8 @@ class VoiceCog(commands.Cog):
 
             # --- 全員退出 → チャンネル削除 ---
             if len(channel.members) == 0:
-                # 参加記録をクリーンアップ
-                self._cleanup_channel(channel.id)
+                # 参加記録をクリーンアップ (キャッシュのみ。DB は CASCADE で自動削除)
+                self._cleanup_channel_cache(channel.id)
                 # チャンネルを削除 (Discord API エラーは無視)
                 # contextlib.suppress: 指定した例外を無視する Python 標準ライブラリ
                 with contextlib.suppress(discord.HTTPException):
@@ -373,7 +423,10 @@ class VoiceCog(commands.Cog):
           5. チャンネルに通知メッセージを送信
         """
         # 最も長く滞在しているメンバーを取得 (Bot は除外)
-        new_owner = self._get_longest_member(channel, old_owner.id)
+        # DB から参加時刻順を取得するため、再起動後も正確
+        new_owner = await self._get_longest_member(
+            session, voice_session, channel, old_owner.id
+        )
         if not new_owner:
             return  # 人間のメンバーが誰もいない
 

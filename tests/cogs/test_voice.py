@@ -77,131 +77,229 @@ def _mock_async_session() -> tuple[MagicMock, AsyncMock]:
     return mock_factory, mock_session
 
 
-class TestRecordJoin:
-    """Tests for _record_join."""
+class TestRecordJoinCache:
+    """Tests for _record_join_cache."""
 
     def test_new_member(self) -> None:
         """Test recording a new member join."""
         cog = _make_cog()
-        cog._record_join(100, 1)
+        cog._record_join_cache(100, 1)
         assert 1 in cog._join_times[100]
 
     def test_no_overwrite(self) -> None:
         """Test that existing join time is not overwritten."""
         cog = _make_cog()
-        cog._record_join(100, 1)
+        cog._record_join_cache(100, 1)
         first_time = cog._join_times[100][1]
-        cog._record_join(100, 1)
+        cog._record_join_cache(100, 1)
         assert cog._join_times[100][1] == first_time
 
     def test_multiple_members(self) -> None:
         """Test recording multiple members in the same channel."""
         cog = _make_cog()
-        cog._record_join(100, 1)
-        cog._record_join(100, 2)
+        cog._record_join_cache(100, 1)
+        cog._record_join_cache(100, 2)
         assert len(cog._join_times[100]) == 2
 
     def test_multiple_channels(self) -> None:
         """Test recording joins across different channels."""
         cog = _make_cog()
-        cog._record_join(100, 1)
-        cog._record_join(200, 2)
+        cog._record_join_cache(100, 1)
+        cog._record_join_cache(200, 2)
         assert 100 in cog._join_times
         assert 200 in cog._join_times
 
 
-class TestRemoveJoin:
-    """Tests for _remove_join."""
+class TestRemoveJoinCache:
+    """Tests for _remove_join_cache."""
 
     def test_existing_member(self) -> None:
         """Test removing an existing member's join record."""
         cog = _make_cog()
-        cog._record_join(100, 1)
-        cog._remove_join(100, 1)
+        cog._record_join_cache(100, 1)
+        cog._remove_join_cache(100, 1)
         assert 1 not in cog._join_times[100]
 
     def test_missing_channel(self) -> None:
         """Test removing from a non-existent channel does not raise."""
         cog = _make_cog()
-        cog._remove_join(999, 1)  # Should not raise
+        cog._remove_join_cache(999, 1)  # Should not raise
 
     def test_missing_member(self) -> None:
         """Test removing a non-existent member does not raise."""
         cog = _make_cog()
-        cog._record_join(100, 1)
-        cog._remove_join(100, 999)  # Should not raise
+        cog._record_join_cache(100, 1)
+        cog._remove_join_cache(100, 999)  # Should not raise
         assert 1 in cog._join_times[100]
 
 
-class TestCleanupChannel:
-    """Tests for _cleanup_channel."""
+class TestCleanupChannelCache:
+    """Tests for _cleanup_channel_cache."""
 
     def test_removes_records(self) -> None:
         """Test that cleanup removes all records for a channel."""
         cog = _make_cog()
-        cog._record_join(100, 1)
-        cog._record_join(100, 2)
-        cog._cleanup_channel(100)
+        cog._record_join_cache(100, 1)
+        cog._record_join_cache(100, 2)
+        cog._cleanup_channel_cache(100)
         assert 100 not in cog._join_times
 
     def test_missing_channel(self) -> None:
         """Test cleaning up a non-existent channel does not raise."""
         cog = _make_cog()
-        cog._cleanup_channel(999)  # Should not raise
+        cog._cleanup_channel_cache(999)  # Should not raise
 
 
 class TestGetLongestMember:
-    """Tests for _get_longest_member."""
+    """Tests for _get_longest_member (async, DB-based)."""
 
-    def test_longest_staying(self) -> None:
-        """Test that the member with the earliest join time is returned."""
+    async def test_uses_db_order(self) -> None:
+        """DB から参加順に取得してメンバーを返す。"""
         cog = _make_cog()
         m1 = _make_member(1)
         m2 = _make_member(2)
         channel = _make_channel(100, [m1, m2])
+        # guild.get_member のモック
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: m1 if uid == 1 else m2
 
-        cog._join_times[100] = {1: 10.0, 2: 20.0}
-        result = cog._get_longest_member(channel, exclude_id=999)
-        assert result is m1
+        voice_session = _make_voice_session()
 
-    def test_excludes_specified(self) -> None:
-        """Test that the excluded member is not returned."""
+        # DB から m1, m2 の順で返す
+        mock_db_member1 = MagicMock()
+        mock_db_member1.user_id = "1"
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
+
+        mock_session = AsyncMock()
+        with patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[mock_db_member1, mock_db_member2],
+        ):
+            result = await cog._get_longest_member(
+                mock_session, voice_session, channel, exclude_id=999
+            )
+            assert result is m1
+
+    async def test_excludes_specified(self) -> None:
+        """除外指定されたメンバーは返さない。"""
         cog = _make_cog()
         m1 = _make_member(1)
         m2 = _make_member(2)
         channel = _make_channel(100, [m1, m2])
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: m1 if uid == 1 else m2
 
-        cog._join_times[100] = {1: 10.0, 2: 20.0}
-        result = cog._get_longest_member(channel, exclude_id=1)
-        assert result is m2
+        voice_session = _make_voice_session()
 
-    def test_none_remaining(self) -> None:
-        """Test that None is returned when no members remain."""
+        mock_db_member1 = MagicMock()
+        mock_db_member1.user_id = "1"
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
+
+        mock_session = AsyncMock()
+        with patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[mock_db_member1, mock_db_member2],
+        ):
+            # m1 を除外 → m2 が返る
+            result = await cog._get_longest_member(
+                mock_session, voice_session, channel, exclude_id=1
+            )
+            assert result is m2
+
+    async def test_none_remaining(self) -> None:
+        """メンバーがいなければ None を返す。"""
         cog = _make_cog()
         m1 = _make_member(1)
         channel = _make_channel(100, [m1])
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: m1 if uid == 1 else None
 
-        result = cog._get_longest_member(channel, exclude_id=1)
-        assert result is None
+        voice_session = _make_voice_session()
 
-    def test_empty_channel(self) -> None:
-        """Test that None is returned for an empty channel."""
+        mock_session = AsyncMock()
+        with patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            result = await cog._get_longest_member(
+                mock_session, voice_session, channel, exclude_id=1
+            )
+            assert result is None
+
+    async def test_empty_channel(self) -> None:
+        """空のチャンネルでは None を返す。"""
         cog = _make_cog()
         channel = _make_channel(100, [])
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda _uid: None
 
-        result = cog._get_longest_member(channel, exclude_id=1)
-        assert result is None
+        voice_session = _make_voice_session()
 
-    def test_fallback_without_records(self) -> None:
-        """Test fallback when no join records exist."""
+        mock_session = AsyncMock()
+        with patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            result = await cog._get_longest_member(
+                mock_session, voice_session, channel, exclude_id=1
+            )
+            assert result is None
+
+    async def test_fallback_to_cache_without_db_records(self) -> None:
+        """DB に記録がない場合はキャッシュにフォールバック。"""
         cog = _make_cog()
         m1 = _make_member(1)
         m2 = _make_member(2)
         channel = _make_channel(100, [m1, m2])
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: m1 if uid == 1 else m2
 
-        # No join records - should still return a member
-        result = cog._get_longest_member(channel, exclude_id=999)
-        assert result is not None
+        voice_session = _make_voice_session()
+
+        # キャッシュに記録
+        cog._join_times[100] = {1: 10.0, 2: 20.0}
+
+        mock_session = AsyncMock()
+        with patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[],  # DB に記録なし
+        ):
+            result = await cog._get_longest_member(
+                mock_session, voice_session, channel, exclude_id=999
+            )
+            assert result is m1  # キャッシュから m1 が選ばれる
+
+    async def test_tiebreaker_by_member_id(self) -> None:
+        """キャッシュで同じ join_time の場合、member.id が小さい方が選ばれる。"""
+        cog = _make_cog()
+        m1 = _make_member(100)  # 大きい ID
+        m2 = _make_member(50)   # 小さい ID
+        channel = _make_channel(100, [m1, m2])
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: m1 if uid == 100 else m2
+
+        voice_session = _make_voice_session()
+
+        # キャッシュで同じ join_time
+        cog._join_times[100] = {100: 10.0, 50: 10.0}
+
+        mock_session = AsyncMock()
+        with patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[],  # DB に記録なし → キャッシュを使用
+        ):
+            result = await cog._get_longest_member(
+                mock_session, voice_session, channel, exclude_id=999
+            )
+            assert result is m2  # ID が小さい m2 が選ばれる
 
 
 class TestOnGuildChannelDelete:
@@ -210,7 +308,7 @@ class TestOnGuildChannelDelete:
     async def test_deletes_voice_session_for_known_channel(self) -> None:
         """Test that DB record is deleted when a voice channel is deleted."""
         cog = _make_cog()
-        cog._record_join(100, 1)
+        cog._record_join_cache(100, 1)
         channel = _make_channel(100)
 
         mock_factory, mock_session = _mock_async_session()
@@ -368,6 +466,9 @@ class TestHandleLobbyJoin:
             new_callable=AsyncMock,
             return_value=voice_session,
         ) as mock_create, patch(
+            "src.cogs.voice.add_voice_session_member",
+            new_callable=AsyncMock,
+        ), patch(
             "src.cogs.voice.create_control_panel_embed",
             return_value=MagicMock(),
         ), patch(
@@ -423,6 +524,9 @@ class TestHandleLobbyJoin:
             new_callable=AsyncMock,
             return_value=voice_session,
         ), patch(
+            "src.cogs.voice.add_voice_session_member",
+            new_callable=AsyncMock,
+        ), patch(
             "src.cogs.voice.delete_voice_session",
             new_callable=AsyncMock,
         ) as mock_delete:
@@ -462,7 +566,7 @@ class TestHandleChannelLeave:
     async def test_deletes_empty_channel(self) -> None:
         """全員退出時にチャンネルと DB レコードを削除する。"""
         cog = _make_cog()
-        cog._record_join(100, 1)
+        cog._record_join_cache(100, 1)
         member = _make_member(1)
         channel = _make_channel(100, [])  # 空のチャンネル
         channel.delete = AsyncMock()
@@ -492,9 +596,13 @@ class TestHandleChannelLeave:
         channel = _make_channel(100, [remaining])
         channel.set_permissions = AsyncMock()
         channel.send = AsyncMock()
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: remaining if uid == 2 else None
 
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
-        cog._join_times[100] = {2: 10.0}
+
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
 
         mock_factory, mock_session = _mock_async_session()
         with patch("src.cogs.voice.async_session", mock_factory), patch(
@@ -507,6 +615,10 @@ class TestHandleChannelLeave:
         ) as mock_update, patch(
             "src.cogs.voice.create_control_panel_embed",
             return_value=MagicMock(),
+        ), patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[mock_db_member2],
         ):
             # _find_panel_message をモック
             cog._find_panel_message = AsyncMock(return_value=None)
@@ -557,9 +669,16 @@ class TestTransferOwnership:
         channel = _make_channel(100, [m2, m3])
         channel.set_permissions = AsyncMock()
         channel.send = AsyncMock()
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: m2 if uid == 2 else m3
 
-        cog._join_times[100] = {2: 10.0, 3: 20.0}
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
+
+        # DB からの参加順: m2 が先
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
+        mock_db_member3 = MagicMock()
+        mock_db_member3.user_id = "3"
 
         mock_session = AsyncMock()
         with patch(
@@ -568,6 +687,10 @@ class TestTransferOwnership:
         ) as mock_update, patch(
             "src.cogs.voice.create_control_panel_embed",
             return_value=MagicMock(),
+        ), patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[mock_db_member2, mock_db_member3],
         ):
             cog._find_panel_message = AsyncMock(return_value=None)
             await cog._transfer_ownership(
@@ -585,9 +708,13 @@ class TestTransferOwnership:
         channel = _make_channel(100, [new_owner])
         channel.set_permissions = AsyncMock()
         channel.send = AsyncMock()
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: new_owner if uid == 2 else None
 
-        cog._join_times[100] = {2: 10.0}
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
+
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
 
         mock_session = AsyncMock()
         with patch(
@@ -596,6 +723,10 @@ class TestTransferOwnership:
         ), patch(
             "src.cogs.voice.create_control_panel_embed",
             return_value=MagicMock(),
+        ), patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[mock_db_member2],
         ):
             cog._find_panel_message = AsyncMock(return_value=None)
             await cog._transfer_ownership(
@@ -618,12 +749,16 @@ class TestTransferOwnership:
         channel = _make_channel(100, [new_owner])
         channel.set_permissions = AsyncMock()
         channel.send = AsyncMock()
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: new_owner if uid == 2 else None
 
-        cog._join_times[100] = {2: 10.0}
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
 
         panel_msg = MagicMock()
         panel_msg.edit = AsyncMock()
+
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
 
         mock_session = AsyncMock()
         mock_embed = MagicMock()
@@ -633,6 +768,10 @@ class TestTransferOwnership:
         ), patch(
             "src.cogs.voice.create_control_panel_embed",
             return_value=mock_embed,
+        ), patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[mock_db_member2],
         ):
             cog._find_panel_message = AsyncMock(return_value=panel_msg)
             await cog._transfer_ownership(
@@ -649,9 +788,13 @@ class TestTransferOwnership:
         channel = _make_channel(100, [new_owner])
         channel.set_permissions = AsyncMock()
         channel.send = AsyncMock()
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: new_owner if uid == 2 else None
 
-        cog._join_times[100] = {2: 10.0}
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
+
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
 
         mock_session = AsyncMock()
         with patch(
@@ -660,6 +803,10 @@ class TestTransferOwnership:
         ), patch(
             "src.cogs.voice.create_control_panel_embed",
             return_value=MagicMock(),
+        ), patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[mock_db_member2],
         ):
             cog._find_panel_message = AsyncMock(return_value=None)
             await cog._transfer_ownership(
@@ -676,6 +823,8 @@ class TestTransferOwnership:
         old_owner = _make_member(1)
         bot_member = _make_member(99, bot=True)
         channel = _make_channel(100, [bot_member])
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: bot_member if uid == 99 else None
 
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
 
@@ -683,7 +832,11 @@ class TestTransferOwnership:
         with patch(
             "src.cogs.voice.update_voice_session",
             new_callable=AsyncMock,
-        ) as mock_update:
+        ) as mock_update, patch(
+            "src.cogs.voice.get_voice_session_members_ordered",
+            new_callable=AsyncMock,
+            return_value=[],  # DB に記録なし
+        ):
             await cog._transfer_ownership(
                 mock_session, voice_session, old_owner, channel
             )
@@ -792,6 +945,7 @@ class TestOnVoiceStateUpdate:
         after.channel = _make_channel(100)
 
         cog._handle_lobby_join = AsyncMock()  # type: ignore[method-assign]
+        cog._record_join_to_db = AsyncMock()  # type: ignore[method-assign]
 
         await cog.on_voice_state_update(member, before, after)
 
@@ -801,7 +955,7 @@ class TestOnVoiceStateUpdate:
     async def test_leave_calls_handle_channel_leave(self) -> None:
         """VC 退出時に _handle_channel_leave が呼ばれる。"""
         cog = _make_cog()
-        cog._record_join(100, 1)
+        cog._record_join_cache(100, 1)
         member = _make_member(1)
 
         before = MagicMock(spec=discord.VoiceState)
@@ -811,6 +965,7 @@ class TestOnVoiceStateUpdate:
         after.channel = None
 
         cog._handle_channel_leave = AsyncMock()  # type: ignore[method-assign]
+        cog._remove_join_from_db = AsyncMock()  # type: ignore[method-assign]
 
         await cog.on_voice_state_update(member, before, after)
 
@@ -1028,6 +1183,9 @@ class TestHandleLobbyJoinCategory:
             new_callable=AsyncMock,
             return_value=voice_session,
         ), patch(
+            "src.cogs.voice.add_voice_session_member",
+            new_callable=AsyncMock,
+        ), patch(
             "src.cogs.voice.create_control_panel_embed",
             return_value=MagicMock(),
         ), patch(
@@ -1078,6 +1236,9 @@ class TestHandleLobbyJoinCategory:
             "src.cogs.voice.create_voice_session",
             new_callable=AsyncMock,
             return_value=voice_session,
+        ), patch(
+            "src.cogs.voice.add_voice_session_member",
+            new_callable=AsyncMock,
         ), patch(
             "src.cogs.voice.create_control_panel_embed",
             return_value=MagicMock(),
@@ -1137,7 +1298,7 @@ class TestOnVoiceStateUpdateEdgeCases:
         """チャンネル間移動では退出と参加の両方が処理される。"""
         cog = _make_cog()
         member = _make_member(1)
-        cog._record_join(100, 1)
+        cog._record_join_cache(100, 1)
 
         old_channel = _make_channel(100)
         new_channel = _make_channel(200)
@@ -1149,6 +1310,8 @@ class TestOnVoiceStateUpdateEdgeCases:
 
         cog._handle_lobby_join = AsyncMock()  # type: ignore[method-assign]
         cog._handle_channel_leave = AsyncMock()  # type: ignore[method-assign]
+        cog._record_join_to_db = AsyncMock()  # type: ignore[method-assign]
+        cog._remove_join_from_db = AsyncMock()  # type: ignore[method-assign]
 
         await cog.on_voice_state_update(member, before, after)
 

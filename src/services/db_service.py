@@ -11,7 +11,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models import Lobby, VoiceSession
+from src.database.models import Lobby, VoiceSession, VoiceSessionMember
 
 # =============================================================================
 # Lobby (ロビー) 操作
@@ -256,3 +256,102 @@ async def delete_voice_session(session: AsyncSession, channel_id: str) -> bool:
         await session.commit()
         return True
     return False
+
+
+# =============================================================================
+# VoiceSessionMember (VC メンバー) 操作
+# =============================================================================
+
+
+async def add_voice_session_member(
+    session: AsyncSession,
+    voice_session_id: int,
+    user_id: str,
+) -> VoiceSessionMember:
+    """VC セッションにメンバーを追加する。
+
+    ユーザーが一時 VC に参加したときに呼ばれる。
+    既に存在する場合は既存のレコードを返す (参加時刻は更新しない)。
+
+    Args:
+        session: DB セッション
+        voice_session_id: VC セッションの ID
+        user_id: メンバーの Discord ユーザー ID
+
+    Returns:
+        作成または既存の VoiceSessionMember オブジェクト
+    """
+    # 既存のレコードがあるか確認
+    result = await session.execute(
+        select(VoiceSessionMember).where(
+            VoiceSessionMember.voice_session_id == voice_session_id,
+            VoiceSessionMember.user_id == user_id,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        return existing
+
+    # 新規作成
+    member = VoiceSessionMember(
+        voice_session_id=voice_session_id,
+        user_id=user_id,
+    )
+    session.add(member)
+    await session.commit()
+    await session.refresh(member)
+    return member
+
+
+async def remove_voice_session_member(
+    session: AsyncSession,
+    voice_session_id: int,
+    user_id: str,
+) -> bool:
+    """VC セッションからメンバーを削除する。
+
+    ユーザーが一時 VC から退出したときに呼ばれる。
+
+    Args:
+        session: DB セッション
+        voice_session_id: VC セッションの ID
+        user_id: メンバーの Discord ユーザー ID
+
+    Returns:
+        削除できたら True、見つからなければ False
+    """
+    result = await session.execute(
+        select(VoiceSessionMember).where(
+            VoiceSessionMember.voice_session_id == voice_session_id,
+            VoiceSessionMember.user_id == user_id,
+        )
+    )
+    member = result.scalar_one_or_none()
+    if member:
+        await session.delete(member)
+        await session.commit()
+        return True
+    return False
+
+
+async def get_voice_session_members_ordered(
+    session: AsyncSession,
+    voice_session_id: int,
+) -> list[VoiceSessionMember]:
+    """VC セッションのメンバーを参加順 (古い順) で取得する。
+
+    オーナー引き継ぎ時の優先順位を決定するために使う。
+
+    Args:
+        session: DB セッション
+        voice_session_id: VC セッションの ID
+
+    Returns:
+        参加時刻が古い順にソートされた VoiceSessionMember のリスト
+    """
+    result = await session.execute(
+        select(VoiceSessionMember)
+        .where(VoiceSessionMember.voice_session_id == voice_session_id)
+        .order_by(VoiceSessionMember.joined_at, VoiceSessionMember.user_id)
+    )
+    return list(result.scalars().all())
