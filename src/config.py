@@ -6,6 +6,8 @@ Bot トークンや DB 接続先など、環境ごとに異なる値をここで
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.constants import DEFAULT_DATABASE_URL
+
 
 class Settings(BaseSettings):
     """アプリケーション設定。環境変数 / .env から自動で読み込まれる。
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
 
     # --- オプションフィールド (デフォルト値あり) ---
     # データベース接続URL。デフォルトはローカルの PostgreSQL
-    database_url: str = "postgresql+asyncpg://user@localhost/ephemeral_vc"
+    database_url: str = DEFAULT_DATABASE_URL
 
     # ヘルスチェック Embed を送信する Discord チャンネルの ID
     # 0 の場合は Discord への送信をスキップし、ログ出力のみ行う

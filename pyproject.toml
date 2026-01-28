@@ -1,5 +1,5 @@
 [project]
-name = "ephemeral-vc"
+name = "discord-util-bot"
 version = "0.1.0"
 description = "Discord dynamic voice channel management bot"
 readme = "README.md"

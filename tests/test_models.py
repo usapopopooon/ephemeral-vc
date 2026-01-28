@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from src.constants import DEFAULT_TEST_DATABASE_URL
 from src.database.models import Base, Lobby, VoiceSession
 
 if TYPE_CHECKING:
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://user@localhost/ephemeral_vc_test",
+    DEFAULT_TEST_DATABASE_URL,
 )
 
 

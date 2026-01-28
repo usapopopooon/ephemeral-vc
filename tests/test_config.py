@@ -10,6 +10,7 @@ import pytest
 os.environ.setdefault("DISCORD_TOKEN", "test-token")
 
 from src.config import Settings  # noqa: E402
+from src.constants import DEFAULT_DATABASE_URL  # noqa: E402
 
 
 class TestAsyncDatabaseUrl:
@@ -49,7 +50,7 @@ class TestAsyncDatabaseUrl:
         """Test the default database URL."""
         monkeypatch.delenv("DATABASE_URL", raising=False)
         s = Settings(discord_token="test", _env_file=None)  # type: ignore[call-arg]
-        assert s.database_url == "postgresql+asyncpg://user@localhost/ephemeral_vc"
+        assert s.database_url == DEFAULT_DATABASE_URL
 
     def test_url_with_query_params(self) -> None:
         """クエリパラメータ付き URL が正しく変換される。"""

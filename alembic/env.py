@@ -1,16 +1,31 @@
 """Alembic environment configuration."""
 
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
+from src.config import settings
 from src.database.models import Base
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# 環境変数 DATABASE_URL があれば alembic.ini の設定を上書き
+database_url = os.environ.get("DATABASE_URL")
+if database_url:
+    # Heroku の postgres:// を postgresql:// に変換
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    config.set_main_option("sqlalchemy.url", database_url)
+else:
+    # 環境変数がなければ settings からデフォルト URL を使用
+    # asyncpg を psycopg2 互換の URL に変換 (alembic は同期接続を使用)
+    sync_url = settings.async_database_url.replace("+asyncpg", "")
+    config.set_main_option("sqlalchemy.url", sync_url)
 
 target_metadata = Base.metadata
 

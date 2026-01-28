@@ -1,1 +1,1 @@
-"""Tests for ephemeral-vc."""
+"""Tests for discord-util-bot."""

@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: ephemeral_vc
+      POSTGRES_DB: discord_util_bot
     ports:
       - "5432:5432"
     volumes:
@@ -19,7 +19,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://user:password@db:5432/ephemeral_vc
+      DATABASE_URL: postgresql+asyncpg://user:password@db:5432/discord_util_bot
     volumes:
       - ./data:/app/data
 

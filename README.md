@@ -1,7 +1,7 @@
-# Ephemeral VC
+# Discord Util Bot
 
-[![CI](https://github.com/usapopopooon/ephemeral-vc/actions/workflows/ci.yml/badge.svg)](https://github.com/usapopopooon/ephemeral-vc/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/usapopopooon/ephemeral-vc/graph/badge.svg)](https://codecov.io/gh/usapopopooon/ephemeral-vc)
+[![CI](https://github.com/usapopopooon/discord-util-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/usapopopooon/discord-util-bot/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/usapopopooon/discord-util-bot/graph/badge.svg)](https://codecov.io/gh/usapopopooon/discord-util-bot)
 
 Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加すると専用のボイスチャンネルが自動作成され、全員退出すると自動削除される。
 
@@ -29,7 +29,7 @@ Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加す�
 | 変数名 | 必須 | 説明 |
 |--------|------|------|
 | `DISCORD_TOKEN` | Yes | Discord Bot トークン |
-| `DATABASE_URL` | No | PostgreSQL 接続 URL (デフォルト: `postgresql+asyncpg://user@localhost/ephemeral_vc`) |
+| `DATABASE_URL` | No | PostgreSQL 接続 URL (デフォルト: `postgresql+asyncpg://user@localhost/discord_util_bot`) |
 | `HEALTH_CHANNEL_ID` | No | ヘルスチェック Embed を送信するチャンネル ID (デフォルト: `0` = 無効) |
 
 ## セットアップ
@@ -37,8 +37,8 @@ Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加す�
 ### ローカル開発 (Make)
 
 ```bash
-git clone https://github.com/usapopopooon/ephemeral-vc.git
-cd ephemeral-vc
+git clone https://github.com/usapopopooon/discord-util-bot.git
+cd discord-util-bot
 cp .env.example .env  # DISCORD_TOKEN を設定
 make run
 ```
@@ -46,8 +46,8 @@ make run
 ### ローカル開発 (手動)
 
 ```bash
-git clone https://github.com/usapopopooon/ephemeral-vc.git
-cd ephemeral-vc
+git clone https://github.com/usapopopooon/discord-util-bot.git
+cd discord-util-bot
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
