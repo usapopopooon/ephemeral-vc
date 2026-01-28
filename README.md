@@ -3,109 +3,152 @@
 [![CI](https://github.com/usapopopooon/ephemeral-vc/actions/workflows/ci.yml/badge.svg)](https://github.com/usapopopooon/ephemeral-vc/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/usapopopooon/ephemeral-vc/graph/badge.svg)](https://codecov.io/gh/usapopopooon/ephemeral-vc)
 
-Discord dynamic voice channel management bot. When users join a lobby voice channel, a personal voice channel is automatically created. The channel is deleted when everyone leaves.
+Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加すると専用のボイスチャンネルが自動作成され、全員退出すると自動削除される。
 
-## Features
+## 機能
 
-- **Automatic VC Creation**: Join a lobby channel to get your own voice channel
-- **Button UI Controls**: Manage your channel with buttons (no commands needed)
-  - Rename channel
-  - Set user limit
-  - Lock/Unlock
-  - Transfer ownership
-  - Block/Allow users
-- **Auto Cleanup**: Empty channels are automatically deleted
-- **Multi-Lobby Support**: Set up multiple lobby channels per server
+- **自動 VC 作成**: ロビーチャンネルに参加すると個人用 VC が作成される
+- **ボタン UI コントロールパネル**: コマンド不要でチャンネルを管理
+  - 🏷️ 名前変更
+  - 👥 人数制限
+  - 🔊 ビットレート変更
+  - 🌏 リージョン変更
+  - 🔒 ロック / アンロック
+  - 🙈 非表示 / 表示
+  - 🔞 年齢制限
+  - 👑 オーナー譲渡
+  - 👟 キック
+  - 🚫 ブロック
+  - ✅ 許可 (ロック時に特定ユーザーを許可)
+- **自動クリーンアップ**: 全員退出したチャンネルは自動削除
+- **複数ロビー対応**: サーバーごとに複数のロビーチャンネルを設定可能
+- **ヘルスモニタリング**: 10 分ごとにハートビート Embed を送信し死活監視
 
-## Requirements
+## 環境変数
 
-- Python 3.12
-- Discord Bot Token
+| 変数名 | 必須 | 説明 |
+|--------|------|------|
+| `DISCORD_TOKEN` | Yes | Discord Bot トークン |
+| `DATABASE_URL` | No | PostgreSQL 接続 URL (デフォルト: `postgresql+asyncpg://user@localhost/ephemeral_vc`) |
+| `HEALTH_CHANNEL_ID` | No | ヘルスチェック Embed を送信するチャンネル ID (デフォルト: `0` = 無効) |
 
-## Installation
+## セットアップ
 
-### Local Development (with Make)
+### ローカル開発 (Make)
 
 ```bash
-git clone https://github.com/yourusername/ephemeral-vc.git
+git clone https://github.com/usapopopooon/ephemeral-vc.git
 cd ephemeral-vc
-cp .env.example .env  # Edit .env with your Discord token
+cp .env.example .env  # DISCORD_TOKEN を設定
 make run
 ```
 
-### Local Development (Manual)
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/ephemeral-vc.git
-   cd ephemeral-vc
-   ```
-
-2. Create a virtual environment and install dependencies:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install -e ".[dev]"
-   ```
-
-3. Copy `.env.example` to `.env` and add your Discord token:
-   ```bash
-   cp .env.example .env
-   ```
-
-4. Run the bot:
-   ```bash
-   python -m src.main
-   ```
-
-### Docker
-
-1. Copy `.env.example` to `.env` and add your Discord token
-
-2. Run with Docker Compose:
-   ```bash
-   docker-compose up -d
-   ```
-
-## Usage
-
-### Admin Commands
-
-| Command | Description |
-|---------|-------------|
-| `/lobby add` | Register current voice channel as a lobby |
-| `/lobby remove` | Unregister the lobby |
-| `/lobby list` | List all registered lobbies |
-
-### User Controls
-
-When you join a lobby and get your own channel, a control panel appears with buttons:
-
-- **Rename**: Change the channel name
-- **User Limit**: Set maximum users (0 = unlimited)
-- **Lock/Unlock**: Make the channel private
-- **Transfer**: Give ownership to another user
-- **Block**: Kick and ban a user from your channel
-- **Allow**: Allow a specific user when locked
-
-## Development
-
-### Make Commands
-
-| Command | Description |
-|---------|-------------|
-| `make setup` | Create venv and install dependencies |
-| `make run` | Run the bot |
-| `make test` | Run tests |
-| `make lint` | Run Ruff linter |
-| `make typecheck` | Run mypy type checker |
-| `make clean` | Remove venv and cache files |
-
-### Running Tests with Coverage
+### ローカル開発 (手動)
 
 ```bash
+git clone https://github.com/usapopopooon/ephemeral-vc.git
+cd ephemeral-vc
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env  # DISCORD_TOKEN を設定
+python -m src.main
+```
+
+### Docker Compose
+
+```bash
+cp .env.example .env  # DISCORD_TOKEN を設定
+docker-compose up -d
+```
+
+PostgreSQL と Bot が一緒に起動する。
+
+## スラッシュコマンド
+
+### 管理者コマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `/lobby` | ロビー VC を作成 (管理者のみ) |
+
+### ユーザーコマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `/panel` | コントロールパネルを再投稿 |
+
+## コントロールパネル
+
+ロビーに参加して VC が作成されると、チャンネルにコントロールパネル Embed が送信される。オーナーのみがボタンを操作できる。
+
+| ボタン | 説明 |
+|--------|------|
+| 🏷️ 名前変更 | チャンネル名を変更 (モーダル入力) |
+| 👥 人数制限 | 接続人数の上限を設定 (0 = 無制限) |
+| 🔊 ビットレート | 音声ビットレートを選択 |
+| 🌏 リージョン | ボイスリージョンを選択 |
+| 🔒 ロック | チャンネルをロック / アンロック |
+| 🙈 非表示 | チャンネルを非表示 / 表示 |
+| 🔞 年齢制限 | NSFW の切り替え |
+| 👑 譲渡 | オーナー権限を他のユーザーに譲渡 |
+| 👟 キック | ユーザーをチャンネルからキック |
+| 🚫 ブロック | ユーザーをブロック (キック + 接続拒否) |
+| ✅ 許可 | ロック時に特定ユーザーの接続を許可 |
+
+## プロジェクト構成
+
+```
+src/
+├── main.py              # エントリーポイント
+├── bot.py               # Bot クラス定義
+├── config.py            # pydantic-settings による設定管理
+├── cogs/
+│   ├── admin.py         # /lobby コマンド (管理者用)
+│   ├── voice.py         # VC 自動作成・削除、/panel コマンド
+│   └── health.py        # ハートビート死活監視
+├── core/
+│   ├── permissions.py   # Discord 権限ヘルパー
+│   ├── validators.py    # 入力バリデーション
+│   └── builders.py      # チャンネル作成ビルダー
+├── database/
+│   ├── engine.py        # SQLAlchemy 非同期エンジン
+│   └── models.py        # Lobby / VoiceSession モデル
+├── services/
+│   └── db_service.py    # DB CRUD 操作
+└── ui/
+    └── control_panel.py # コントロールパネル UI (View / Button / Select)
+```
+
+## 開発
+
+### Make コマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `make setup` | venv 作成 + 依存関係インストール |
+| `make run` | Bot を起動 |
+| `make test` | テスト実行 |
+| `make lint` | Ruff リンター実行 |
+| `make typecheck` | mypy 型チェック実行 |
+| `make clean` | venv とキャッシュを削除 |
+
+### テスト
+
+```bash
+# テスト実行
+make test
+
+# カバレッジ付き
 .venv/bin/pytest --cov --cov-report=html
 ```
+
+### CI
+
+GitHub Actions で以下を自動実行:
+- Ruff (リンター)
+- mypy (型チェック)
+- pytest + Codecov (テスト + カバレッジ)
 
 ## License
 
