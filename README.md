@@ -3,10 +3,11 @@
 [![CI](https://github.com/usapopopooon/discord-util-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/usapopopooon/discord-util-bot/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/usapopopooon/discord-util-bot/graph/badge.svg)](https://codecov.io/gh/usapopopooon/discord-util-bot)
 
-Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加すると専用のボイスチャンネルが自動作成され、全員退出すると自動削除される。
+Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加すると専用のボイスチャンネルが自動作成され、全員退出すると自動削除される。Bump リマインダー機能も搭載。
 
 ## 機能
 
+### 一時 VC 機能
 - **自動 VC 作成**: ロビーチャンネルに参加すると個人用 VC が作成される
 - **ボタン UI コントロールパネル**: コマンド不要でチャンネルを管理
   - 🏷️ 名前変更
@@ -22,6 +23,14 @@ Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加す�
   - ✅ 許可 (ロック時に特定ユーザーを許可)
 - **自動クリーンアップ**: 全員退出したチャンネルは自動削除
 - **複数ロビー対応**: サーバーごとに複数のロビーチャンネルを設定可能
+
+### Bump リマインダー機能
+- **DISBOARD / ディス速報対応**: 両サービスの bump 成功メッセージを自動検出
+- **2時間後通知**: bump 成功から2時間後にリマインダーを送信
+- **通知カスタマイズ**: サービスごとに通知の有効/無効、メンションロールを設定可能
+- **自動検出**: `/bump setup` 時にチャンネル履歴から直近の bump を検出し、次回通知時刻を計算
+
+### その他
 - **ヘルスモニタリング**: 10 分ごとにハートビート Embed を送信し死活監視
 
 ## 環境変数
@@ -77,6 +86,9 @@ PostgreSQL と Bot が一緒に起動する。
 | コマンド | 説明 |
 |---------|------|
 | `/panel` | コントロールパネルを再投稿 |
+| `/bump setup` | bump 監視を開始 (実行したチャンネルを監視) |
+| `/bump status` | bump 監視の設定状況を確認 |
+| `/bump disable` | bump 監視を停止 |
 
 ## コントロールパネル
 
@@ -106,6 +118,7 @@ src/
 ├── cogs/
 │   ├── admin.py         # /lobby コマンド (管理者用)
 │   ├── voice.py         # VC 自動作成・削除、/panel コマンド
+│   ├── bump.py          # Bump リマインダー (/bump コマンド)
 │   └── health.py        # ハートビート死活監視
 ├── core/
 │   ├── permissions.py   # Discord 権限ヘルパー
