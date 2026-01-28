@@ -322,9 +322,19 @@ class BumpCog(commands.Cog):
                 remind_at=remind_at,
             )
             is_enabled = reminder.is_enabled
+            custom_role_id = reminder.role_id
+
+        # 通知先ロール名を取得
+        role_name: str | None = None
+        if custom_role_id:
+            role = message.guild.get_role(int(custom_role_id))
+            if role:
+                role_name = role.name
 
         # bump 検知の確認 Embed を送信
-        embed = self._build_detection_embed(service_name, user, remind_at, is_enabled)
+        embed = self._build_detection_embed(
+            service_name, user, remind_at, is_enabled, role_name
+        )
         view = BumpNotificationView(guild_id, service_name, is_enabled)
         self.bot.add_view(view)
 
@@ -433,6 +443,7 @@ class BumpCog(commands.Cog):
         user: discord.Member,
         remind_at: datetime,
         is_enabled: bool,
+        role_name: str | None = None,
     ) -> discord.Embed:
         """bump 検知時の確認 Embed を生成する。
 
@@ -441,6 +452,7 @@ class BumpCog(commands.Cog):
             user: bump を実行したユーザー
             remind_at: リマインド予定時刻
             is_enabled: 通知が有効かどうか
+            role_name: 通知先ロール名 (None の場合はデフォルトロール)
 
         Returns:
             確認用の Embed
@@ -449,15 +461,20 @@ class BumpCog(commands.Cog):
         ts = int(remind_at.timestamp())
         time_absolute = f"<t:{ts}:t>"  # 短い時刻表示 (例: 21:30)
 
+        # 通知先ロール名 (デフォルトは Server Bumper)
+        display_role = role_name or TARGET_ROLE_NAME
+
         if is_enabled:
             description = (
                 f"{user.mention} さんが **{service_name}** を bump しました！\n\n"
-                f"次の bump リマインドは {time_absolute} に送信します。"
+                f"次の bump リマインドは {time_absolute} に送信します。\n"
+                f"現在の通知先: `@{display_role}`"
             )
         else:
             description = (
                 f"{user.mention} さんが **{service_name}** を bump しました！\n\n"
-                f"通知は現在 **無効** です。"
+                f"通知は現在 **無効** です。\n"
+                f"現在の通知先: `@{display_role}`"
             )
 
         embed = discord.Embed(
@@ -606,6 +623,7 @@ class BumpCog(commands.Cog):
         detected_service: str | None = None
         is_enabled = True
         reminder_time_text: str | None = None  # 具体的なリマインド時刻
+        custom_role_name: str | None = None  # カスタム通知ロール名
 
         if isinstance(channel, discord.TextChannel):
             result = await self._find_recent_bump(channel)
@@ -626,6 +644,11 @@ class BumpCog(commands.Cog):
                             remind_at=remind_at,
                         )
                         is_enabled = reminder.is_enabled
+                        # カスタムロール名を取得
+                        if reminder.role_id:
+                            role = interaction.guild.get_role(int(reminder.role_id))
+                            if role:
+                                custom_role_name = role.name
                     ts = int(remind_at.timestamp())
                     reminder_time_text = f"<t:{ts}:t>"
                     recent_bump_info = (
@@ -648,8 +671,12 @@ class BumpCog(commands.Cog):
         else:
             reminder_desc = "リマインドを送信します。"
 
+        # 通知先ロール名を表示
+        display_role = custom_role_name or TARGET_ROLE_NAME
+
         base_description = (
-            f"監視チャンネル: <#{channel_id}>\n\n"
+            f"監視チャンネル: <#{channel_id}>\n"
+            f"現在の通知先: `@{display_role}`\n\n"
             "DISBOARD (`/bump`) または ディス速報 (`/dissoku up`) の "
             f"bump 成功を検知し、{reminder_desc}"
         )
@@ -701,15 +728,35 @@ class BumpCog(commands.Cog):
 
         async with async_session() as session:
             config = await get_bump_config(session, guild_id)
+            # 各サービスのリマインダー設定を取得
+            disboard_reminder = await get_bump_reminder(session, guild_id, "DISBOARD")
+            dissoku_reminder = await get_bump_reminder(session, guild_id, "ディス速報")
 
         if config:
             # Discord タイムスタンプ形式で設定日時を表示
             ts = int(config.created_at.timestamp())
+
+            # 各サービスの通知先ロールを取得
+            def get_role_display(
+                reminder: BumpReminder | None, guild: discord.Guild
+            ) -> str:
+                if reminder and reminder.role_id:
+                    role = guild.get_role(int(reminder.role_id))
+                    if role:
+                        return f"`@{role.name}`"
+                return f"`@{TARGET_ROLE_NAME}` (デフォルト)"
+
+            disboard_role = get_role_display(disboard_reminder, interaction.guild)
+            dissoku_role = get_role_display(dissoku_reminder, interaction.guild)
+
             embed = discord.Embed(
                 title="Bump 監視設定",
                 description=(
                     f"**監視チャンネル:** <#{config.channel_id}>\n"
-                    f"**設定日時:** <t:{ts}:F>"
+                    f"**設定日時:** <t:{ts}:F>\n\n"
+                    f"**通知先ロール:**\n"
+                    f"・DISBOARD: {disboard_role}\n"
+                    f"・ディス速報: {dissoku_role}"
                 ),
                 color=discord.Color.blue(),
             )

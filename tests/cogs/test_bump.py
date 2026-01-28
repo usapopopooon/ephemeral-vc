@@ -435,6 +435,94 @@ class TestOnMessage:
         assert "Bump 検知" in send_kwargs["embed"].title
         assert isinstance(send_kwargs["view"], BumpNotificationView)
 
+    async def test_creates_reminder_shows_default_role_in_embed(
+        self, mock_db_session: MagicMock
+    ) -> None:
+        """デフォルトロールが Embed に表示される。"""
+        cog = _make_cog()
+        member = _make_member(has_target_role=True)
+        message = _make_message(
+            author_id=DISBOARD_BOT_ID,
+            channel_id=456,
+            guild_id=12345,
+            embed_description=DISBOARD_SUCCESS_KEYWORD,
+            interaction_user=member,
+        )
+        message.channel.send = AsyncMock()
+
+        mock_config = _make_bump_config(guild_id="12345", channel_id="456")
+        # role_id が None = デフォルトロール
+        mock_reminder = _make_reminder(is_enabled=True, role_id=None)
+
+        with (
+            patch("src.cogs.bump.async_session", return_value=mock_db_session),
+            patch(
+                "src.cogs.bump.get_bump_config",
+                new_callable=AsyncMock,
+                return_value=mock_config,
+            ),
+            patch(
+                "src.cogs.bump.upsert_bump_reminder",
+                new_callable=AsyncMock,
+                return_value=mock_reminder,
+            ),
+        ):
+            await cog.on_message(message)
+
+        send_kwargs = message.channel.send.call_args[1]
+        embed = send_kwargs["embed"]
+        # デフォルトロール名が表示される
+        assert "現在の通知先:" in embed.description
+        assert f"@{TARGET_ROLE_NAME}" in embed.description
+
+    async def test_creates_reminder_shows_custom_role_in_embed(
+        self, mock_db_session: MagicMock
+    ) -> None:
+        """カスタムロールが Embed に表示される。"""
+        cog = _make_cog()
+        member = _make_member(has_target_role=True)
+        message = _make_message(
+            author_id=DISBOARD_BOT_ID,
+            channel_id=456,
+            guild_id=12345,
+            embed_description=DISBOARD_SUCCESS_KEYWORD,
+            interaction_user=member,
+        )
+        message.channel.send = AsyncMock()
+
+        # カスタムロールを設定
+        mock_custom_role = MagicMock()
+        mock_custom_role.name = "カスタムロール"
+        message.guild.get_role = MagicMock(return_value=mock_custom_role)
+
+        mock_config = _make_bump_config(guild_id="12345", channel_id="456")
+        # role_id が設定されている = カスタムロール
+        mock_reminder = _make_reminder(is_enabled=True, role_id="999")
+
+        with (
+            patch("src.cogs.bump.async_session", return_value=mock_db_session),
+            patch(
+                "src.cogs.bump.get_bump_config",
+                new_callable=AsyncMock,
+                return_value=mock_config,
+            ),
+            patch(
+                "src.cogs.bump.upsert_bump_reminder",
+                new_callable=AsyncMock,
+                return_value=mock_reminder,
+            ),
+        ):
+            await cog.on_message(message)
+
+        # guild.get_role が呼ばれることを確認
+        message.guild.get_role.assert_called_once_with(999)
+
+        send_kwargs = message.channel.send.call_args[1]
+        embed = send_kwargs["embed"]
+        # カスタムロール名が表示される
+        assert "現在の通知先:" in embed.description
+        assert "@カスタムロール" in embed.description
+
 
 # ---------------------------------------------------------------------------
 # _reminder_check テスト
@@ -653,6 +741,50 @@ class TestBuildDetectionEmbed:
         embed = cog._build_detection_embed("DISBOARD", member, remind_at, False)
 
         assert "無効" in (embed.description or "")
+
+    def test_detection_embed_shows_default_role(self) -> None:
+        """デフォルトロール名が表示される。"""
+        from datetime import UTC, datetime, timedelta
+
+        cog = _make_cog()
+        member = _make_member()
+        remind_at = datetime.now(UTC) + timedelta(hours=2)
+
+        embed = cog._build_detection_embed("DISBOARD", member, remind_at, True)
+
+        assert "現在の通知先:" in (embed.description or "")
+        assert f"@{TARGET_ROLE_NAME}" in (embed.description or "")
+
+    def test_detection_embed_shows_custom_role(self) -> None:
+        """カスタムロール名が表示される。"""
+        from datetime import UTC, datetime, timedelta
+
+        cog = _make_cog()
+        member = _make_member()
+        remind_at = datetime.now(UTC) + timedelta(hours=2)
+
+        embed = cog._build_detection_embed(
+            "DISBOARD", member, remind_at, True, role_name="カスタムロール"
+        )
+
+        assert "現在の通知先:" in (embed.description or "")
+        assert "@カスタムロール" in (embed.description or "")
+
+    def test_detection_embed_shows_custom_role_when_disabled(self) -> None:
+        """通知無効時でもカスタムロール名が表示される。"""
+        from datetime import UTC, datetime, timedelta
+
+        cog = _make_cog()
+        member = _make_member()
+        remind_at = datetime.now(UTC) + timedelta(hours=2)
+
+        embed = cog._build_detection_embed(
+            "DISBOARD", member, remind_at, False, role_name="カスタムロール"
+        )
+
+        assert "無効" in (embed.description or "")
+        assert "現在の通知先:" in (embed.description or "")
+        assert "@カスタムロール" in (embed.description or "")
 
 
 class TestBuildReminderEmbed:
@@ -1586,6 +1718,96 @@ class TestBumpSetupCommand:
         embed = send_kwargs["embed"]
         assert "直近の bump を検出" not in embed.description
 
+    async def test_setup_shows_notification_role(self) -> None:
+        """セットアップ時に通知先ロールが表示される。"""
+        cog = _make_cog()
+
+        mock_interaction = MagicMock(spec=discord.Interaction)
+        mock_interaction.guild = MagicMock()
+        mock_interaction.guild.id = 12345
+        mock_interaction.channel_id = 456
+        mock_interaction.response = MagicMock()
+        mock_interaction.response.send_message = AsyncMock()
+        mock_interaction.followup = MagicMock()
+        mock_interaction.followup.send = AsyncMock()
+
+        # VoiceChannel をモック (TextChannel ではない -> 履歴検索なし)
+        mock_channel = MagicMock(spec=discord.VoiceChannel)
+        mock_interaction.channel = mock_channel
+
+        mock_session = MagicMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("src.cogs.bump.async_session", return_value=mock_session),
+            patch(
+                "src.cogs.bump.upsert_bump_config", new_callable=AsyncMock
+            ),
+        ):
+            await cog.bump_setup.callback(cog, mock_interaction)
+
+        # Embed に通知先ロールが表示される
+        send_kwargs = mock_interaction.response.send_message.call_args[1]
+        embed = send_kwargs["embed"]
+        assert "現在の通知先:" in embed.description
+        assert f"@{TARGET_ROLE_NAME}" in embed.description
+
+    async def test_setup_shows_custom_notification_role(self) -> None:
+        """セットアップ時にカスタム通知先ロールが表示される。"""
+        from datetime import UTC, datetime, timedelta
+
+        cog = _make_cog()
+
+        # 1時間前の bump
+        bump_time = datetime.now(UTC) - timedelta(hours=1)
+
+        mock_interaction = MagicMock(spec=discord.Interaction)
+        mock_interaction.guild = MagicMock()
+        mock_interaction.guild.id = 12345
+        mock_interaction.channel_id = 456
+        mock_interaction.response = MagicMock()
+        mock_interaction.response.send_message = AsyncMock()
+
+        # カスタムロールを設定
+        mock_custom_role = MagicMock()
+        mock_custom_role.name = "カスタムロール"
+        mock_interaction.guild.get_role = MagicMock(return_value=mock_custom_role)
+
+        # TextChannel をモック
+        mock_channel = MagicMock(spec=discord.TextChannel)
+        mock_interaction.channel = mock_channel
+
+        mock_session = MagicMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        # リマインダーにカスタムロールが設定されている
+        mock_reminder = _make_reminder(role_id="999")
+
+        with (
+            patch("src.cogs.bump.async_session", return_value=mock_session),
+            patch(
+                "src.cogs.bump.upsert_bump_config", new_callable=AsyncMock
+            ),
+            patch(
+                "src.cogs.bump.upsert_bump_reminder",
+                new_callable=AsyncMock,
+                return_value=mock_reminder,
+            ),
+            patch.object(
+                cog, "_find_recent_bump", new_callable=AsyncMock
+            ) as mock_find,
+        ):
+            mock_find.return_value = ("DISBOARD", bump_time)
+            await cog.bump_setup.callback(cog, mock_interaction)
+
+        # Embed にカスタムロール名が表示される
+        send_kwargs = mock_interaction.response.send_message.call_args[1]
+        embed = send_kwargs["embed"]
+        assert "現在の通知先:" in embed.description
+        assert "@カスタムロール" in embed.description
+
 
 class TestBumpStatusCommand:
     """Tests for /bump status command."""
@@ -1599,6 +1821,7 @@ class TestBumpStatusCommand:
         mock_interaction = MagicMock(spec=discord.Interaction)
         mock_interaction.guild = MagicMock()
         mock_interaction.guild.id = 12345
+        mock_interaction.guild.get_role = MagicMock(return_value=None)
         mock_interaction.response = MagicMock()
         mock_interaction.response.send_message = AsyncMock()
 
@@ -1616,6 +1839,11 @@ class TestBumpStatusCommand:
                 "src.cogs.bump.get_bump_config",
                 new_callable=AsyncMock,
                 return_value=mock_config,
+            ),
+            patch(
+                "src.cogs.bump.get_bump_reminder",
+                new_callable=AsyncMock,
+                return_value=None,
             ),
         ):
             await cog.bump_status.callback(cog, mock_interaction)
@@ -1646,6 +1874,11 @@ class TestBumpStatusCommand:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
+            patch(
+                "src.cogs.bump.get_bump_reminder",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await cog.bump_status.callback(cog, mock_interaction)
 
@@ -1653,6 +1886,71 @@ class TestBumpStatusCommand:
         call_kwargs = mock_interaction.response.send_message.call_args[1]
         embed = call_kwargs["embed"]
         assert "設定されていません" in embed.description
+
+    async def test_status_shows_notification_roles(self) -> None:
+        """通知先ロールが表示される。"""
+        from datetime import UTC, datetime
+
+        cog = _make_cog()
+
+        mock_interaction = MagicMock(spec=discord.Interaction)
+        mock_interaction.guild = MagicMock()
+        mock_interaction.guild.id = 12345
+        mock_interaction.response = MagicMock()
+        mock_interaction.response.send_message = AsyncMock()
+
+        # カスタムロールを設定
+        mock_custom_role = MagicMock()
+        mock_custom_role.name = "カスタムロール"
+        mock_interaction.guild.get_role = MagicMock(return_value=mock_custom_role)
+
+        mock_config = MagicMock()
+        mock_config.channel_id = "456"
+        mock_config.created_at = datetime.now(UTC)
+
+        # DISBOARD はカスタムロール, ディス速報はデフォルト
+        mock_disboard_reminder = _make_reminder(
+            service_name="DISBOARD", role_id="999"
+        )
+        mock_dissoku_reminder = None  # ディス速報はリマインダーなし
+
+        mock_session = MagicMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        async def mock_get_reminder(
+            _session: MagicMock, _guild_id: str, service_name: str
+        ) -> MagicMock | None:
+            if service_name == "DISBOARD":
+                return mock_disboard_reminder
+            return mock_dissoku_reminder
+
+        with (
+            patch("src.cogs.bump.async_session", return_value=mock_session),
+            patch(
+                "src.cogs.bump.get_bump_config",
+                new_callable=AsyncMock,
+                return_value=mock_config,
+            ),
+            patch(
+                "src.cogs.bump.get_bump_reminder",
+                new=AsyncMock(side_effect=mock_get_reminder),
+            ),
+        ):
+            await cog.bump_status.callback(cog, mock_interaction)
+
+        mock_interaction.response.send_message.assert_awaited_once()
+        call_kwargs = mock_interaction.response.send_message.call_args[1]
+        embed = call_kwargs["embed"]
+
+        # 通知先ロールが表示される
+        assert "通知先ロール" in embed.description
+        assert "DISBOARD" in embed.description
+        assert "ディス速報" in embed.description
+        # カスタムロール名が表示される
+        assert "カスタムロール" in embed.description
+        # デフォルトロールも表示される
+        assert "Server Bumper" in embed.description
 
 
 class TestBumpDisableCommand:
