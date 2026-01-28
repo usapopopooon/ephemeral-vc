@@ -277,8 +277,8 @@ class BumpCog(commands.Cog):
         if message.author.id not in (DISBOARD_BOT_ID, DISSOKU_BOT_ID):
             return
 
-        # Embed がなければ無視
-        if not message.embeds:
+        # Embed もメッセージ本文もなければ無視
+        if not message.embeds and not message.content:
             return
 
         guild_id = str(message.guild.id)
@@ -347,8 +347,10 @@ class BumpCog(commands.Cog):
         Returns:
             サービス名 ("DISBOARD" or "ディス速報")。検知できなければ None
         """
+        # Embed をチェック
         for embed in message.embeds:
             description = embed.description or ""
+            title = embed.title or ""
 
             if (
                 message.author.id == DISBOARD_BOT_ID
@@ -356,11 +358,21 @@ class BumpCog(commands.Cog):
             ):
                 return "DISBOARD"
 
+            # ディス速報は title または description に「アップ」が含まれる
             if (
                 message.author.id == DISSOKU_BOT_ID
-                and DISSOKU_SUCCESS_KEYWORD in description
+                and (DISSOKU_SUCCESS_KEYWORD in description
+                     or DISSOKU_SUCCESS_KEYWORD in title)
             ):
                 return "ディス速報"
+
+        # ディス速報はメッセージ本文にも「アップ」が含まれる場合がある
+        if (
+            message.author.id == DISSOKU_BOT_ID
+            and message.content
+            and DISSOKU_SUCCESS_KEYWORD in message.content
+        ):
+            return "ディス速報"
 
         return None
 

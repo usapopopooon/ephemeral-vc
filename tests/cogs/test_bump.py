@@ -38,6 +38,8 @@ def _make_message(
     channel_id: int,
     guild_id: int = 12345,
     embed_description: str | None = None,
+    embed_title: str | None = None,
+    content: str | None = None,
     interaction_user: discord.Member | None = None,
 ) -> MagicMock:
     """Create a mock Discord message."""
@@ -49,10 +51,12 @@ def _make_message(
     message.guild = MagicMock()
     message.guild.id = guild_id
     message.guild.get_member = MagicMock(return_value=interaction_user)
+    message.content = content
 
-    if embed_description is not None:
+    if embed_description is not None or embed_title is not None:
         embed = MagicMock(spec=discord.Embed)
         embed.description = embed_description
+        embed.title = embed_title
         message.embeds = [embed]
     else:
         message.embeds = []
@@ -124,12 +128,36 @@ class TestDetectBumpSuccess:
         assert result == "DISBOARD"
 
     def test_detects_dissoku_success(self) -> None:
-        """ディス速報の bump 成功を検知する。"""
+        """ディス速報の bump 成功を検知する (description)。"""
         cog = _make_cog()
         message = _make_message(
             author_id=DISSOKU_BOT_ID,
             channel_id=456,
             embed_description=f"サーバーを{DISSOKU_SUCCESS_KEYWORD}しました！",
+        )
+
+        result = cog._detect_bump_success(message)
+        assert result == "ディス速報"
+
+    def test_detects_dissoku_success_in_title(self) -> None:
+        """ディス速報の bump 成功を検知する (title)。"""
+        cog = _make_cog()
+        message = _make_message(
+            author_id=DISSOKU_BOT_ID,
+            channel_id=456,
+            embed_title=f"サーバー名 を{DISSOKU_SUCCESS_KEYWORD}したよ!",
+        )
+
+        result = cog._detect_bump_success(message)
+        assert result == "ディス速報"
+
+    def test_detects_dissoku_success_in_content(self) -> None:
+        """ディス速報の bump 成功を検知する (message.content)。"""
+        cog = _make_cog()
+        message = _make_message(
+            author_id=DISSOKU_BOT_ID,
+            channel_id=456,
+            content=f"🍭CHILLカフェ を{DISSOKU_SUCCESS_KEYWORD}したよ!",
         )
 
         result = cog._detect_bump_success(message)
