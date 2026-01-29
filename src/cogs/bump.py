@@ -44,6 +44,9 @@ DISBOARD_BOT_ID = 302050872383242240
 # ディス速報 Bot の ID
 DISSOKU_BOT_ID = 761562078095867916
 
+# デバッグ用: テストユーザー ID
+DEBUG_USER_ID = 1058651415289012295
+
 # bump 成功を判定するキーワード
 DISBOARD_SUCCESS_KEYWORD = "表示順をアップ"
 DISSOKU_SUCCESS_KEYWORD = "アップ"
@@ -273,8 +276,8 @@ class BumpCog(commands.Cog):
         if not message.guild:
             return
 
-        # DISBOARD/ディス速報 Bot 以外は無視
-        if message.author.id not in (DISBOARD_BOT_ID, DISSOKU_BOT_ID):
+        # DISBOARD/ディス速報 Bot 以外は無視 (DEBUG_USER_ID はテスト用)
+        if message.author.id not in (DISBOARD_BOT_ID, DISSOKU_BOT_ID, DEBUG_USER_ID):
             return
 
         logger.info(
