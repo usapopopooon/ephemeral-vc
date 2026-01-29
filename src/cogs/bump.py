@@ -277,8 +277,15 @@ class BumpCog(commands.Cog):
         if message.author.id not in (DISBOARD_BOT_ID, DISSOKU_BOT_ID):
             return
 
+        logger.info(
+            "[DEBUG] Received message from bump bot: bot_id=%s bot_name=%s",
+            message.author.id,
+            message.author.name,
+        )
+
         # Embed もメッセージ本文もなければ無視
         if not message.embeds and not message.content:
+            logger.info("[DEBUG] No embeds or content, skipping")
             return
 
         guild_id = str(message.guild.id)
@@ -289,6 +296,11 @@ class BumpCog(commands.Cog):
 
         # 設定がないか、設定されたチャンネルでなければ無視
         if not config or config.channel_id != str(message.channel.id):
+            logger.info(
+                "[DEBUG] Channel mismatch or no config: config=%s msg_channel=%s",
+                config.channel_id if config else None,
+                str(message.channel.id),
+            )
             return
 
         # bump 成功かどうかを判定
