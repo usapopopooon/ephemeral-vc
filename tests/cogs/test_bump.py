@@ -524,6 +524,114 @@ class TestOnMessage:
         assert "@カスタムロール" in embed.description
 
 
+class TestOnMessageEdit:
+    """Tests for on_message_edit listener (ディス速報対応)."""
+
+    async def test_processes_when_embed_added(self) -> None:
+        """embed が後から追加された場合に検知する（ディス速報パターン）。"""
+        cog = _make_cog()
+        member = _make_member()
+
+        # before: embed なし
+        before = _make_message(
+            author_id=DISSOKU_BOT_ID,
+            channel_id=456,
+            embed_description=None,
+            interaction_user=member,
+        )
+        before.embeds = []
+
+        # after: embed あり
+        after = _make_message(
+            author_id=DISSOKU_BOT_ID,
+            channel_id=456,
+            embed_description=DISSOKU_SUCCESS_KEYWORD,
+            interaction_user=member,
+        )
+
+        mock_session = MagicMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        mock_config = _make_bump_config(channel_id="456")
+        mock_reminder = MagicMock()
+        mock_reminder.is_enabled = True
+        mock_reminder.role_id = None
+
+        after.channel.send = AsyncMock()
+
+        with (
+            patch("src.cogs.bump.async_session", return_value=mock_session),
+            patch(
+                "src.cogs.bump.get_bump_config",
+                new_callable=AsyncMock,
+                return_value=mock_config,
+            ),
+            patch(
+                "src.cogs.bump.upsert_bump_reminder",
+                new_callable=AsyncMock,
+                return_value=mock_reminder,
+            ) as mock_upsert,
+        ):
+            await cog.on_message_edit(before, after)
+
+        # リマインダーが登録される
+        mock_upsert.assert_called_once()
+        after.channel.send.assert_called_once()
+
+    async def test_skips_when_embed_already_exists(self) -> None:
+        """before に既に embed がある場合はスキップ（重複検知防止）。"""
+        cog = _make_cog()
+        member = _make_member()
+
+        # before: embed あり
+        before = _make_message(
+            author_id=DISSOKU_BOT_ID,
+            channel_id=456,
+            embed_description=DISSOKU_SUCCESS_KEYWORD,
+            interaction_user=member,
+        )
+
+        # after: embed あり（同じ）
+        after = _make_message(
+            author_id=DISSOKU_BOT_ID,
+            channel_id=456,
+            embed_description=DISSOKU_SUCCESS_KEYWORD,
+            interaction_user=member,
+        )
+
+        with patch("src.cogs.bump.upsert_bump_reminder") as mock_upsert:
+            await cog.on_message_edit(before, after)
+
+        # 既に embed があったのでスキップ
+        mock_upsert.assert_not_called()
+
+    async def test_skips_when_no_embed_added(self) -> None:
+        """embed が追加されなかった場合はスキップ。"""
+        cog = _make_cog()
+
+        # before: embed なし
+        before = _make_message(
+            author_id=DISSOKU_BOT_ID,
+            channel_id=456,
+        )
+        before.embeds = []
+
+        # after: embed なし（テキストのみ変更）
+        after = _make_message(
+            author_id=DISSOKU_BOT_ID,
+            channel_id=456,
+            content="updated text",
+        )
+        after.embeds = []
+
+        with patch("src.cogs.bump.upsert_bump_reminder") as mock_upsert:
+            await cog.on_message_edit(before, after)
+
+        # embed が追加されてないのでスキップ
+        mock_upsert.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # _reminder_check テスト
 # ---------------------------------------------------------------------------

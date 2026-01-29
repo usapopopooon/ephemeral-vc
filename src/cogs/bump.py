@@ -267,7 +267,25 @@ class BumpCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
-        """メッセージを監視し、bump 成功を検知する。
+        """メッセージを監視し、bump 成功を検知する。"""
+        await self._process_bump_message(message)
+
+    @commands.Cog.listener()
+    async def on_message_edit(
+        self, before: discord.Message, after: discord.Message
+    ) -> None:
+        """メッセージ編集を監視し、bump 成功を検知する。
+
+        ディス速報は最初に空のメッセージを送信し、後から embed を追加するため、
+        on_message_edit でも検知する必要がある。
+        """
+        # before に embed がなく、after に embed がある場合のみ処理
+        # (既に検知済みのメッセージを再処理しないため)
+        if not before.embeds and after.embeds:
+            await self._process_bump_message(after)
+
+    async def _process_bump_message(self, message: discord.Message) -> None:
+        """bump メッセージを処理する共通ロジック。
 
         DISBOARD/ディス速報 Bot からのメッセージで、設定されたチャンネルかつ
         bump 成功の Embed が含まれていれば、リマインダーを登録する。
