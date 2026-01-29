@@ -408,6 +408,14 @@ class BumpCog(commands.Cog):
             description = embed.description or ""
             title = embed.title or ""
 
+            # ディス速報の場合、embed の内容をログに出力（デバッグ用）
+            if message.author.id == DISSOKU_BOT_ID:
+                logger.info(
+                    "[DEBUG] Dissoku embed: title=%s description=%s",
+                    title[:100] if title else None,
+                    description[:100] if description else None,
+                )
+
             if (
                 message.author.id == DISBOARD_BOT_ID
                 and DISBOARD_SUCCESS_KEYWORD in description
