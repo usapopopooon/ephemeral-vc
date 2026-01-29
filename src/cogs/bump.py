@@ -294,18 +294,31 @@ class BumpCog(commands.Cog):
         # bump 成功かどうかを判定
         service_name = self._detect_bump_success(message)
         if not service_name:
+            logger.info(
+                "[DEBUG] Bump not detected: bot_id=%s embeds=%s content=%s",
+                message.author.id,
+                [e.to_dict() for e in message.embeds],
+                message.content[:100] if message.content else None,
+            )
             return
+
+        logger.info("[DEBUG] Bump detected: service=%s", service_name)
 
         # bump 実行者を取得
         user = self._get_bump_user(message)
         if not user:
-            logger.debug("Could not determine bump user for %s", service_name)
+            logger.info(
+                "[DEBUG] Could not get bump user: interaction=%s",
+                message.interaction,
+            )
             return
+
+        logger.info("[DEBUG] Bump user: %s", user.name)
 
         # Server Bumper ロールを持っているか確認
         if not self._has_target_role(user):
-            logger.debug(
-                "User %s does not have %s role, skipping reminder",
+            logger.info(
+                "[DEBUG] User %s does not have %s role, skipping reminder",
                 user.name,
                 TARGET_ROLE_NAME,
             )
