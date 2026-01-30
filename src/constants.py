@@ -13,9 +13,9 @@ DB_NAME = APP_NAME.replace("-", "_")
 # テスト用 DB 名
 TEST_DB_NAME = f"{DB_NAME}_test"
 
-# デフォルトのデータベース URL
-DEFAULT_DATABASE_URL = f"postgresql+asyncpg://user@localhost/{DB_NAME}"
+# デフォルトのデータベース URL (Docker用)
+DEFAULT_DATABASE_URL = f"postgresql+asyncpg://user:password@localhost/{DB_NAME}"
 
-# テスト用データベース URL (デフォルト)
-DEFAULT_TEST_DATABASE_URL = f"postgresql+asyncpg://user@localhost/{TEST_DB_NAME}"
-DEFAULT_TEST_DATABASE_URL_SYNC = f"postgresql://user@localhost/{TEST_DB_NAME}"
+# テスト用データベース URL (デフォルト、Docker用)
+DEFAULT_TEST_DATABASE_URL = f"postgresql+asyncpg://user:password@localhost/{TEST_DB_NAME}"
+DEFAULT_TEST_DATABASE_URL_SYNC = f"postgresql://user:password@localhost/{TEST_DB_NAME}"

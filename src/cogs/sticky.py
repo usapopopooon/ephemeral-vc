@@ -1,10 +1,10 @@
 """Sticky message cog.
 
-チャンネルに常に最新位置に表示される embed メッセージを設定する。
+チャンネルに常に最新位置に表示される embed/text メッセージを設定する。
 新しいメッセージが投稿されると、古い sticky を削除して再投稿する。
 
 仕組み:
-  - /sticky set で sticky メッセージを設定
+  - /sticky set で sticky メッセージを設定 (embed または text を選択)
   - on_message で新規メッセージを監視
   - delay 秒後に古い sticky を削除して新しい sticky を投稿（デバウンス方式）
   - Bot 再起動後も DB から設定を復元して動作継続
@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_COLOR = 0x5865F2
 
 
-class StickySetModal(discord.ui.Modal, title="Sticky メッセージ設定"):
-    """Sticky メッセージを設定するモーダル。"""
+class StickyEmbedModal(discord.ui.Modal, title="Sticky メッセージ設定 (Embed)"):
+    """Embed 形式の Sticky メッセージを設定するモーダル。"""
 
     sticky_title: discord.ui.TextInput[Any] = discord.ui.TextInput(
         label="タイトル",
@@ -131,12 +131,13 @@ class StickySetModal(discord.ui.Modal, title="Sticky メッセージ設定"):
                 description=description,
                 color=color_int,
                 cooldown_seconds=delay_seconds,
+                message_type="embed",
             )
 
         # embed を投稿
         embed = self.cog._build_embed(title, description, color_int)
         await interaction.response.send_message(
-            "✅ Sticky メッセージを設定しました。", ephemeral=True
+            "✅ Sticky メッセージ (Embed) を設定しました。", ephemeral=True
         )
 
         # 実際の sticky メッセージを投稿
@@ -152,13 +153,151 @@ class StickySetModal(discord.ui.Modal, title="Sticky メッセージ設定"):
                         last_posted_at=datetime.now(UTC),
                     )
                 logger.info(
-                    "Sticky message set: guild=%s channel=%s title=%s",
+                    "Sticky message set (embed): guild=%s channel=%s title=%s",
                     guild_id,
                     channel_id,
                     title,
                 )
             except discord.HTTPException as e:
                 logger.error("Failed to post initial sticky message: %s", e)
+
+
+class StickyTextModal(discord.ui.Modal, title="Sticky メッセージ設定 (テキスト)"):
+    """テキスト形式の Sticky メッセージを設定するモーダル。"""
+
+    content: discord.ui.TextInput[Any] = discord.ui.TextInput(
+        label="メッセージ内容",
+        style=discord.TextStyle.paragraph,
+        placeholder="スティッキーするテキストを入力（改行可）...",
+        max_length=2000,
+        required=True,
+    )
+
+    delay: discord.ui.TextInput[Any] = discord.ui.TextInput(
+        label="遅延（秒）",
+        placeholder="最後のメッセージから再投稿までの遅延",
+        default="5",
+        max_length=4,
+        required=False,
+    )
+
+    def __init__(self, cog: StickyCog) -> None:
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        """モーダル送信時の処理。"""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "このコマンドはサーバー内でのみ使用できます。", ephemeral=True
+            )
+            return
+
+        content = self.content.value
+
+        # delay のパース
+        delay_seconds = 5
+        if self.delay.value:
+            try:
+                delay_seconds = int(self.delay.value)
+            except ValueError:
+                await interaction.response.send_message(
+                    f"無効な遅延値です: `{self.delay.value}`\n"
+                    "数字を入力してください",
+                    ephemeral=True,
+                )
+                return
+
+        # delay の検証
+        if delay_seconds < 1:
+            delay_seconds = 1
+        if delay_seconds > 3600:
+            delay_seconds = 3600
+
+        guild_id = str(interaction.guild.id)
+        channel_id = str(interaction.channel_id)
+
+        # 設定を保存 (title は空文字、color は None)
+        async with async_session() as session:
+            await create_sticky_message(
+                session,
+                channel_id=channel_id,
+                guild_id=guild_id,
+                title="",
+                description=content,
+                color=None,
+                cooldown_seconds=delay_seconds,
+                message_type="text",
+            )
+
+        await interaction.response.send_message(
+            "✅ Sticky メッセージ (テキスト) を設定しました。", ephemeral=True
+        )
+
+        # 実際の sticky メッセージを投稿
+        channel = interaction.channel
+        if channel and hasattr(channel, "send"):
+            try:
+                new_message = await channel.send(content)
+                async with async_session() as session:
+                    await update_sticky_message_id(
+                        session,
+                        channel_id,
+                        str(new_message.id),
+                        last_posted_at=datetime.now(UTC),
+                    )
+                logger.info(
+                    "Sticky message set (text): guild=%s channel=%s",
+                    guild_id,
+                    channel_id,
+                )
+            except discord.HTTPException as e:
+                logger.error("Failed to post initial sticky message: %s", e)
+
+
+class StickyTypeSelect(discord.ui.Select[discord.ui.View]):
+    """Sticky メッセージの種類を選択するセレクトメニュー。"""
+
+    def __init__(self, cog: StickyCog) -> None:
+        self.cog = cog
+        options = [
+            discord.SelectOption(
+                label="Embed",
+                description="タイトル・説明文・色を設定できる装飾付きメッセージ",
+                value="embed",
+            ),
+            discord.SelectOption(
+                label="テキスト",
+                description="シンプルなテキストメッセージ",
+                value="text",
+            ),
+        ]
+        super().__init__(
+            placeholder="メッセージの種類を選択...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        """選択時のコールバック。"""
+        selected = self.values[0]
+        if selected == "embed":
+            await interaction.response.send_modal(StickyEmbedModal(self.cog))
+        else:
+            await interaction.response.send_modal(StickyTextModal(self.cog))
+
+
+class StickyTypeView(discord.ui.View):
+    """Sticky メッセージの種類を選択する View。"""
+
+    def __init__(self, cog: StickyCog) -> None:
+        super().__init__(timeout=60)
+        self.add_item(StickyTypeSelect(cog))
+
+
+# 後方互換性のためのエイリアス
+StickySetModal = StickyEmbedModal
 
 
 class StickyCog(commands.Cog):
@@ -282,11 +421,17 @@ class StickyCog(commands.Cog):
                 return
 
         # 新しい sticky メッセージを投稿
-        embed = self._build_embed(sticky.title, sticky.description, sticky.color)
         try:
-            new_message = await channel.send(embed=embed)
+            if sticky.message_type == "text":
+                new_message = await channel.send(sticky.description)
+            else:
+                embed = self._build_embed(
+                    sticky.title, sticky.description, sticky.color
+                )
+                new_message = await channel.send(embed=embed)
             logger.info(
-                "Posted new sticky message: channel=%s message_id=%s",
+                "Posted new sticky message (%s): channel=%s message_id=%s",
+                sticky.message_type,
                 channel_id,
                 new_message.id,
             )
@@ -338,7 +483,12 @@ class StickyCog(commands.Cog):
             )
             return
 
-        await interaction.response.send_modal(StickySetModal(self))
+        view = StickyTypeView(self)
+        await interaction.response.send_message(
+            "Sticky メッセージの種類を選択してください:",
+            view=view,
+            ephemeral=True,
+        )
 
     @sticky_group.command(name="remove", description="sticky メッセージを解除")
     async def sticky_remove(self, interaction: discord.Interaction) -> None:
@@ -409,21 +559,24 @@ class StickyCog(commands.Cog):
             )
             return
 
+        message_type_display = "Embed" if sticky.message_type == "embed" else "テキスト"
         color_hex = f"#{sticky.color:06X}" if sticky.color else "デフォルト"
         embed = discord.Embed(
             title="📌 Sticky メッセージ設定",
             color=sticky.color or DEFAULT_COLOR,
         )
-        embed.add_field(name="タイトル", value=sticky.title, inline=False)
+        embed.add_field(name="種類", value=message_type_display, inline=True)
+        embed.add_field(name="遅延", value=f"{sticky.cooldown_seconds}秒", inline=True)
+        if sticky.message_type == "embed":
+            embed.add_field(name="タイトル", value=sticky.title, inline=False)
+            embed.add_field(name="色", value=color_hex, inline=True)
         embed.add_field(
-            name="説明",
+            name="内容",
             value=sticky.description[:100] + "..."
             if len(sticky.description) > 100
             else sticky.description,
             inline=False,
         )
-        embed.add_field(name="色", value=color_hex, inline=True)
-        embed.add_field(name="遅延", value=f"{sticky.cooldown_seconds}秒", inline=True)
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

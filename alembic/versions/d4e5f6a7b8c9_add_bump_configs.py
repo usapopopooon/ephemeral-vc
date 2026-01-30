@@ -20,19 +20,22 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # bump_configs テーブルを作成 (ギルドごとの bump 監視設定)
-    op.create_table(
-        "bump_configs",
-        sa.Column("guild_id", sa.String(), nullable=False),
-        sa.Column("channel_id", sa.String(), nullable=False),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-        sa.PrimaryKeyConstraint("guild_id"),
-    )
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "bump_configs" not in inspector.get_table_names():
+        # bump_configs テーブルを作成 (ギルドごとの bump 監視設定)
+        op.create_table(
+            "bump_configs",
+            sa.Column("guild_id", sa.String(), nullable=False),
+            sa.Column("channel_id", sa.String(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.PrimaryKeyConstraint("guild_id"),
+        )
 
 
 def downgrade() -> None:

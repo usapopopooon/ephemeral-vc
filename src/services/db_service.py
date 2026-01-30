@@ -667,6 +667,7 @@ async def create_sticky_message(
     description: str,
     color: int | None = None,
     cooldown_seconds: int = 5,
+    message_type: str = "embed",
 ) -> StickyMessage:
     """sticky メッセージを作成する。
 
@@ -676,10 +677,11 @@ async def create_sticky_message(
         session: DB セッション
         channel_id: Discord チャンネルの ID
         guild_id: Discord サーバーの ID
-        title: embed のタイトル
-        description: embed の説明文
+        title: embed のタイトル (text の場合は空文字)
+        description: embed の説明文 / text の本文
         color: embed の色 (16進数の整数値)
         cooldown_seconds: 再投稿までの最小間隔 (秒)
+        message_type: メッセージの種類 ("embed" または "text")
 
     Returns:
         作成または更新された StickyMessage オブジェクト
@@ -692,6 +694,7 @@ async def create_sticky_message(
         existing.description = description
         existing.color = color
         existing.cooldown_seconds = cooldown_seconds
+        existing.message_type = message_type
         existing.message_id = None  # 新規設定なのでリセット
         existing.last_posted_at = None
         await session.commit()
@@ -705,6 +708,7 @@ async def create_sticky_message(
         description=description,
         color=color,
         cooldown_seconds=cooldown_seconds,
+        message_type=message_type,
     )
     session.add(sticky)
     await session.commit()

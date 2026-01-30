@@ -1043,3 +1043,76 @@ class TestStickyMessageOperations:
         """Test getting all sticky messages when there are none."""
         stickies = await get_all_sticky_messages(db_session)
         assert len(stickies) == 0
+
+    async def test_create_sticky_message_with_embed_type(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test creating a sticky message with embed type."""
+        sticky = await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Test Title",
+            description="Test Description",
+            message_type="embed",
+        )
+
+        assert sticky.message_type == "embed"
+
+    async def test_create_sticky_message_with_text_type(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test creating a sticky message with text type."""
+        sticky = await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="",
+            description="Just plain text",
+            message_type="text",
+        )
+
+        assert sticky.message_type == "text"
+        assert sticky.title == ""
+        assert sticky.description == "Just plain text"
+
+    async def test_create_sticky_message_default_type_is_embed(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test that default message_type is embed."""
+        sticky = await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Test Title",
+            description="Test Description",
+        )
+
+        assert sticky.message_type == "embed"
+
+    async def test_update_sticky_message_type(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test that updating a sticky message preserves and can change type."""
+        # 最初に embed タイプで作成
+        await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Original Title",
+            description="Original Description",
+            message_type="embed",
+        )
+
+        # text タイプで更新
+        sticky = await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="",
+            description="Updated text content",
+            message_type="text",
+        )
+
+        assert sticky.message_type == "text"
+        assert sticky.description == "Updated text content"

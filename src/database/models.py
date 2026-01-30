@@ -270,7 +270,10 @@ class StickyMessage(Base):
     # message_id: 現在投稿されている sticky メッセージの ID (削除用)
     message_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    # title: embed のタイトル
+    # message_type: メッセージの種類 ("embed" または "text")
+    message_type: Mapped[str] = mapped_column(String, default="embed", nullable=False)
+
+    # title: embed のタイトル (text の場合は空文字)
     title: Mapped[str] = mapped_column(String, nullable=False)
 
     # description: embed の説明文
