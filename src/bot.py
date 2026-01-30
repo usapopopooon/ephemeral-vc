@@ -52,10 +52,13 @@ class EphemeralVCBot(commands.Bot):
         #    voice: ボイスチャンネルの作成・削除・オーナー引き継ぎ
         #    admin: /lobby コマンドでロビーVC を作成
         #    health: 定期的にハートビートを送る死活監視
+        #    bump: bump リマインダー
+        #    sticky: sticky メッセージ
         await self.load_extension("src.cogs.voice")
         await self.load_extension("src.cogs.admin")
         await self.load_extension("src.cogs.health")
         await self.load_extension("src.cogs.bump")
+        await self.load_extension("src.cogs.sticky")
 
         # 3. 永続 View の復元
         #    discord.py の View (ボタン等) は Bot が再起動すると動かなくなる。

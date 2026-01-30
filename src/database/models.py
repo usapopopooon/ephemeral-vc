@@ -10,6 +10,7 @@ Python オブジェクトとしてデータベースの行を操作できる。
   - voice_session_members: 一時 VC の参加メンバー
   - bump_reminders: bump リマインダー
   - bump_configs: bump 監視の設定 (ギルドごと)
+  - sticky_messages: sticky メッセージの設定 (チャンネルごと)
 """
 
 from datetime import UTC, datetime
@@ -246,4 +247,54 @@ class BumpConfig(Base):
         """デバッグ用の文字列表現。"""
         return (
             f"<BumpConfig(guild_id={self.guild_id}, channel_id={self.channel_id})>"
+        )
+
+
+class StickyMessage(Base):
+    """sticky メッセージの設定テーブル。
+
+    チャンネルごとに常に最新位置に表示される embed メッセージを設定する。
+    新しいメッセージが投稿されると、古い sticky を削除して再投稿する。
+
+    テーブル名: sticky_messages
+    """
+
+    __tablename__ = "sticky_messages"
+
+    # channel_id: チャンネルの ID (主キー、1チャンネル1設定)
+    channel_id: Mapped[str] = mapped_column(String, primary_key=True)
+
+    # guild_id: Discord サーバーの ID
+    guild_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    # message_id: 現在投稿されている sticky メッセージの ID (削除用)
+    message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # title: embed のタイトル
+    title: Mapped[str] = mapped_column(String, nullable=False)
+
+    # description: embed の説明文
+    description: Mapped[str] = mapped_column(String, nullable=False)
+
+    # color: embed の色 (16進数の整数値、例: 0x00FF00)
+    color: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # cooldown_seconds: 再投稿までの最小間隔 (秒)
+    cooldown_seconds: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+
+    # last_posted_at: 最後に sticky を投稿した日時 (cooldown 計算用)
+    last_posted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # created_at: 設定作成日時 (UTC)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        """デバッグ用の文字列表現。"""
+        return (
+            f"<StickyMessage(channel_id={self.channel_id}, "
+            f"guild_id={self.guild_id}, title={self.title})>"
         )

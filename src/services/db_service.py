@@ -17,6 +17,7 @@ from src.database.models import (
     BumpConfig,
     BumpReminder,
     Lobby,
+    StickyMessage,
     VoiceSession,
     VoiceSessionMember,
 )
@@ -632,3 +633,151 @@ async def delete_bump_config(
         return True
 
     return False
+
+
+# =============================================================================
+# StickyMessage (sticky メッセージ) 操作
+# =============================================================================
+
+
+async def get_sticky_message(
+    session: AsyncSession,
+    channel_id: str,
+) -> StickyMessage | None:
+    """チャンネルの sticky メッセージ設定を取得する。
+
+    Args:
+        session: DB セッション
+        channel_id: Discord チャンネルの ID
+
+    Returns:
+        見つかった StickyMessage、なければ None
+    """
+    result = await session.execute(
+        select(StickyMessage).where(StickyMessage.channel_id == channel_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_sticky_message(
+    session: AsyncSession,
+    channel_id: str,
+    guild_id: str,
+    title: str,
+    description: str,
+    color: int | None = None,
+    cooldown_seconds: int = 5,
+) -> StickyMessage:
+    """sticky メッセージを作成する。
+
+    既に同じチャンネルに設定がある場合は上書きする。
+
+    Args:
+        session: DB セッション
+        channel_id: Discord チャンネルの ID
+        guild_id: Discord サーバーの ID
+        title: embed のタイトル
+        description: embed の説明文
+        color: embed の色 (16進数の整数値)
+        cooldown_seconds: 再投稿までの最小間隔 (秒)
+
+    Returns:
+        作成または更新された StickyMessage オブジェクト
+    """
+    existing = await get_sticky_message(session, channel_id)
+
+    if existing:
+        existing.guild_id = guild_id
+        existing.title = title
+        existing.description = description
+        existing.color = color
+        existing.cooldown_seconds = cooldown_seconds
+        existing.message_id = None  # 新規設定なのでリセット
+        existing.last_posted_at = None
+        await session.commit()
+        await session.refresh(existing)
+        return existing
+
+    sticky = StickyMessage(
+        channel_id=channel_id,
+        guild_id=guild_id,
+        title=title,
+        description=description,
+        color=color,
+        cooldown_seconds=cooldown_seconds,
+    )
+    session.add(sticky)
+    await session.commit()
+    await session.refresh(sticky)
+    return sticky
+
+
+async def update_sticky_message_id(
+    session: AsyncSession,
+    channel_id: str,
+    message_id: str | None,
+    last_posted_at: datetime | None = None,
+) -> bool:
+    """sticky メッセージの message_id と last_posted_at を更新する。
+
+    新しい sticky メッセージを投稿した後に呼び出す。
+
+    Args:
+        session: DB セッション
+        channel_id: Discord チャンネルの ID
+        message_id: 投稿したメッセージの ID (削除する場合は None)
+        last_posted_at: 投稿日時 (None なら更新しない)
+
+    Returns:
+        更新できたら True、見つからなければ False
+    """
+    sticky = await get_sticky_message(session, channel_id)
+
+    if sticky:
+        sticky.message_id = message_id
+        if last_posted_at is not None:
+            sticky.last_posted_at = last_posted_at
+        await session.commit()
+        return True
+
+    return False
+
+
+async def delete_sticky_message(
+    session: AsyncSession,
+    channel_id: str,
+) -> bool:
+    """sticky メッセージ設定を削除する。
+
+    Args:
+        session: DB セッション
+        channel_id: Discord チャンネルの ID
+
+    Returns:
+        削除できたら True、見つからなければ False
+    """
+    sticky = await get_sticky_message(session, channel_id)
+
+    if sticky:
+        await session.delete(sticky)
+        await session.commit()
+        return True
+
+    return False
+
+
+async def get_all_sticky_messages(
+    session: AsyncSession,
+) -> list[StickyMessage]:
+    """全ての sticky メッセージ設定を取得する。
+
+    Bot 起動時に既存の sticky メッセージを復元するために使用する。
+
+    Args:
+        session: DB セッション
+
+    Returns:
+        全ての StickyMessage のリスト
+    """
+    result = await session.execute(select(StickyMessage))
+    return list(result.scalars().all())

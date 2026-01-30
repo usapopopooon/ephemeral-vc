@@ -18,21 +18,26 @@ from src.services.db_service import (
     add_voice_session_member,
     clear_bump_reminder,
     create_lobby,
+    create_sticky_message,
     create_voice_session,
     delete_bump_config,
     delete_lobby,
+    delete_sticky_message,
     delete_voice_session,
+    get_all_sticky_messages,
     get_all_voice_sessions,
     get_bump_config,
     get_bump_reminder,
     get_due_bump_reminders,
     get_lobbies_by_guild,
     get_lobby_by_channel_id,
+    get_sticky_message,
     get_voice_session,
     get_voice_session_members_ordered,
     remove_voice_session_member,
     toggle_bump_reminder,
     update_bump_reminder_role,
+    update_sticky_message_id,
     update_voice_session,
     upsert_bump_config,
     upsert_bump_reminder,
@@ -883,3 +888,158 @@ class TestBumpConfigOperations:
         """Test deleting a non-existent bump config."""
         result = await delete_bump_config(db_session, "nonexistent")
         assert result is False
+
+
+class TestStickyMessageOperations:
+    """Tests for sticky message database operations."""
+
+    async def test_create_sticky_message(self, db_session: AsyncSession) -> None:
+        """Test creating a new sticky message."""
+        sticky = await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Test Title",
+            description="Test Description",
+            color=0xFF0000,
+            cooldown_seconds=10,
+        )
+
+        assert sticky.channel_id == "456"
+        assert sticky.guild_id == "123"
+        assert sticky.title == "Test Title"
+        assert sticky.description == "Test Description"
+        assert sticky.color == 0xFF0000
+        assert sticky.cooldown_seconds == 10
+        assert sticky.message_id is None
+        assert sticky.last_posted_at is None
+        assert sticky.created_at is not None
+
+    async def test_create_sticky_message_updates_existing(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test that creating a sticky message updates existing one."""
+        await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Original Title",
+            description="Original Description",
+        )
+
+        sticky = await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Updated Title",
+            description="Updated Description",
+            color=0x00FF00,
+        )
+
+        assert sticky.title == "Updated Title"
+        assert sticky.description == "Updated Description"
+        assert sticky.color == 0x00FF00
+
+    async def test_get_sticky_message(self, db_session: AsyncSession) -> None:
+        """Test getting a sticky message by channel_id."""
+        await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Test Title",
+            description="Test Description",
+        )
+
+        sticky = await get_sticky_message(db_session, "456")
+
+        assert sticky is not None
+        assert sticky.channel_id == "456"
+        assert sticky.title == "Test Title"
+
+    async def test_get_sticky_message_not_found(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test getting a non-existent sticky message."""
+        sticky = await get_sticky_message(db_session, "nonexistent")
+        assert sticky is None
+
+    async def test_update_sticky_message_id(self, db_session: AsyncSession) -> None:
+        """Test updating the message_id and last_posted_at."""
+        from datetime import UTC, datetime
+
+        await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Test Title",
+            description="Test Description",
+        )
+
+        now = datetime.now(UTC)
+        result = await update_sticky_message_id(
+            db_session, "456", "999", last_posted_at=now
+        )
+        assert result is True
+
+        sticky = await get_sticky_message(db_session, "456")
+        assert sticky is not None
+        assert sticky.message_id == "999"
+        assert sticky.last_posted_at is not None
+
+    async def test_update_sticky_message_id_not_found(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test updating message_id for a non-existent sticky."""
+        result = await update_sticky_message_id(db_session, "nonexistent", "999")
+        assert result is False
+
+    async def test_delete_sticky_message(self, db_session: AsyncSession) -> None:
+        """Test deleting a sticky message."""
+        await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Test Title",
+            description="Test Description",
+        )
+
+        result = await delete_sticky_message(db_session, "456")
+        assert result is True
+
+        sticky = await get_sticky_message(db_session, "456")
+        assert sticky is None
+
+    async def test_delete_sticky_message_not_found(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test deleting a non-existent sticky message."""
+        result = await delete_sticky_message(db_session, "nonexistent")
+        assert result is False
+
+    async def test_get_all_sticky_messages(self, db_session: AsyncSession) -> None:
+        """Test getting all sticky messages."""
+        await create_sticky_message(
+            db_session,
+            channel_id="456",
+            guild_id="123",
+            title="Title 1",
+            description="Description 1",
+        )
+
+        await create_sticky_message(
+            db_session,
+            channel_id="789",
+            guild_id="123",
+            title="Title 2",
+            description="Description 2",
+        )
+
+        stickies = await get_all_sticky_messages(db_session)
+        assert len(stickies) == 2
+
+    async def test_get_all_sticky_messages_empty(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test getting all sticky messages when there are none."""
+        stickies = await get_all_sticky_messages(db_session)
+        assert len(stickies) == 0
