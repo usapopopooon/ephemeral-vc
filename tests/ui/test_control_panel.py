@@ -265,7 +265,8 @@ class TestRenameModal:
                 name="New Name"
             )
             mock_update.assert_awaited_once()
-            interaction.response.send_message.assert_awaited_once()
+            # ephemeral ではなく defer() を呼ぶ
+            interaction.response.defer.assert_awaited_once()
             # チャンネルに通知メッセージが送信される
             interaction.channel.send.assert_awaited_once()
             msg = interaction.channel.send.call_args[0][0]
@@ -414,7 +415,8 @@ class TestUserLimitModal:
             await modal.on_submit(interaction)
 
             interaction.channel.edit.assert_awaited_once_with(user_limit=0)
-            msg = interaction.response.send_message.call_args[0][0]
+            # チャンネルへの通知で「無制限」が含まれる
+            msg = interaction.channel.send.call_args[0][0]
             assert "無制限" in msg
 
 
@@ -822,8 +824,10 @@ class TestNsfwButton:
             await view.nsfw_button.callback(interaction)
 
         interaction.channel.edit.assert_awaited_once_with(nsfw=True)
-        interaction.response.send_message.assert_awaited_once()
-        msg = interaction.response.send_message.call_args[0][0]
+        # ephemeral ではなく defer() を呼ぶ
+        interaction.response.defer.assert_awaited_once()
+        # チャンネルに通知メッセージが送信される
+        msg = interaction.channel.send.call_args[0][0]
         assert "年齢制限を設定" in msg
         assert view.nsfw_button.label == "制限解除"
 
@@ -840,7 +844,8 @@ class TestNsfwButton:
             await view.nsfw_button.callback(interaction)
 
         interaction.channel.edit.assert_awaited_once_with(nsfw=False)
-        msg = interaction.response.send_message.call_args[0][0]
+        # チャンネルに通知メッセージが送信される
+        msg = interaction.channel.send.call_args[0][0]
         assert "年齢制限を解除" in msg
         assert view.nsfw_button.label == "年齢制限"
 
@@ -851,7 +856,7 @@ class TestNsfwButton:
 
         await view.nsfw_button.callback(interaction)
 
-        interaction.response.send_message.assert_not_awaited()
+        interaction.response.defer.assert_not_awaited()
 
 
 # ===========================================================================
@@ -889,8 +894,11 @@ class TestBitrateSelectMenu:
         await menu.callback(interaction)
 
         interaction.channel.edit.assert_awaited_once_with(bitrate=64000)
+        # セレクトメニューを ✅ に置き換え
         interaction.response.edit_message.assert_awaited_once()
-        msg = interaction.response.edit_message.call_args[1]["content"]
+        assert interaction.response.edit_message.call_args[1]["content"] == "✅"
+        # チャンネルに通知メッセージが送信される
+        msg = interaction.channel.send.call_args[0][0]
         assert "64 kbps" in msg
 
     async def test_bitrate_http_exception(self) -> None:
@@ -912,7 +920,7 @@ class TestBitrateSelectMenu:
         assert "ブーストレベル" in msg
 
     async def test_bitrate_non_voice_channel(self) -> None:
-        """VoiceChannel でない場合は edit を呼ばない。"""
+        """VoiceChannel でない場合は edit を呼ばないがセレクトメニューは閉じる。"""
         options = [discord.SelectOption(label="64 kbps", value="64000")]
         menu = BitrateSelectMenu(options)
         menu._values = ["64000"]
@@ -921,9 +929,11 @@ class TestBitrateSelectMenu:
 
         await menu.callback(interaction)
 
+        # セレクトメニューを閉じる
         interaction.response.edit_message.assert_awaited_once()
-        msg = interaction.response.edit_message.call_args[1]["content"]
-        assert "64 kbps" in msg
+        assert interaction.response.edit_message.call_args[1]["content"] == "✅"
+        # チャンネルへの通知は送信されない
+        interaction.channel.send.assert_not_awaited()
 
 
 # ===========================================================================
@@ -961,7 +971,10 @@ class TestRegionSelectMenu:
         await menu.callback(interaction)
 
         interaction.channel.edit.assert_awaited_once_with(rtc_region="japan")
-        msg = interaction.response.edit_message.call_args[1]["content"]
+        # セレクトメニューを ✅ に置き換え
+        assert interaction.response.edit_message.call_args[1]["content"] == "✅"
+        # チャンネルに通知メッセージが送信される
+        msg = interaction.channel.send.call_args[0][0]
         assert "japan" in msg
 
     async def test_change_region_auto(self) -> None:
@@ -975,7 +988,10 @@ class TestRegionSelectMenu:
         await menu.callback(interaction)
 
         interaction.channel.edit.assert_awaited_once_with(rtc_region=None)
-        msg = interaction.response.edit_message.call_args[1]["content"]
+        # セレクトメニューを ✅ に置き換え
+        assert interaction.response.edit_message.call_args[1]["content"] == "✅"
+        # チャンネルに通知メッセージが送信される
+        msg = interaction.channel.send.call_args[0][0]
         assert "自動" in msg
 
     async def test_region_notification_sent(self) -> None:
@@ -1813,10 +1829,13 @@ class TestKickSelectCallback:
         await select.callback(interaction)
 
         user_to_kick.move_to.assert_awaited_once_with(None)
+        # セレクトメニューを ✅ に置き換え
         interaction.response.edit_message.assert_awaited_once()
-        msg = interaction.response.edit_message.call_args[1]["content"]
-        assert "キック" in msg
+        assert interaction.response.edit_message.call_args[1]["content"] == "✅"
+        # チャンネルに通知メッセージが送信される
         channel.send.assert_awaited_once()
+        msg = channel.send.call_args[0][0]
+        assert "キック" in msg
 
     async def test_kick_user_not_in_channel(self) -> None:
         """VC にいないメンバーはキックできない。"""
@@ -1883,10 +1902,13 @@ class TestBlockSelectCallback:
         )
         # VC にいるのでキックもされる
         user_to_block.move_to.assert_awaited_once_with(None)
+        # セレクトメニューを ✅ に置き換え
         interaction.response.edit_message.assert_awaited_once()
-        msg = interaction.response.edit_message.call_args[1]["content"]
-        assert "ブロック" in msg
+        assert interaction.response.edit_message.call_args[1]["content"] == "✅"
+        # チャンネルに通知メッセージが送信される
         channel.send.assert_awaited_once()
+        msg = channel.send.call_args[0][0]
+        assert "ブロック" in msg
 
     async def test_block_user_not_in_vc(self) -> None:
         """VC にいないメンバーをブロック (キックなし)。"""
@@ -1968,10 +1990,13 @@ class TestAllowSelectCallback:
         channel.set_permissions.assert_awaited_once_with(
             user_to_allow, connect=True
         )
+        # セレクトメニューを ✅ に置き換え
         interaction.response.edit_message.assert_awaited_once()
-        msg = interaction.response.edit_message.call_args[1]["content"]
-        assert "許可" in msg
+        assert interaction.response.edit_message.call_args[1]["content"] == "✅"
+        # チャンネルに通知メッセージが送信される
         channel.send.assert_awaited_once()
+        msg = channel.send.call_args[0][0]
+        assert "許可" in msg
 
     async def test_allow_non_voice_channel(self) -> None:
         """VoiceChannel でない場合は何もしない。"""

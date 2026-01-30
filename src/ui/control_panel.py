@@ -232,16 +232,16 @@ class RenameModal(discord.ui.Modal, title="チャンネル名変更"):
             # DB のチャンネル名も更新
             await update_voice_session(db_session, voice_session, name=new_name)
 
-        await interaction.response.send_message(
-            f"チャンネル名を **{new_name}** に変更しました。", ephemeral=True
-        )
-
+        # チャンネルに変更通知を送信
         channel = interaction.channel
         if isinstance(channel, discord.VoiceChannel):
+            await interaction.response.defer()
             await channel.send(
                 f"🏷️ チャンネル名が **{new_name}** に変更されました。"
             )
             await refresh_panel_embed(channel)
+        else:
+            await interaction.response.defer()
 
 
 class UserLimitModal(discord.ui.Modal, title="人数制限変更"):
@@ -303,16 +303,17 @@ class UserLimitModal(discord.ui.Modal, title="人数制限変更"):
             await update_voice_session(db_session, voice_session, user_limit=new_limit)
 
         limit_text = str(new_limit) if new_limit > 0 else "無制限"
-        await interaction.response.send_message(
-            f"人数制限を **{limit_text}** に設定しました。", ephemeral=True
-        )
 
+        # チャンネルに変更通知を送信
         channel = interaction.channel
         if isinstance(channel, discord.VoiceChannel):
+            await interaction.response.defer()
             await channel.send(
                 f"👥 人数制限が **{limit_text}** に変更されました。"
             )
             await refresh_panel_embed(channel)
+        else:
+            await interaction.response.defer()
 
 
 # =============================================================================
@@ -409,14 +410,8 @@ class TransferSelectMenu(discord.ui.Select[Any]):
                 owner_id=str(new_owner.id),
             )
 
-        # edit_message: 元のセレクトメニューを完了メッセージに差し替える
-        # view=None でセレクトメニューを削除
-        await interaction.response.edit_message(
-            content=f"{new_owner.mention} にオーナーを譲渡しました。",
-            view=None,
-        )
-
-        # チャンネル全体に譲渡メッセージを送信
+        # ephemeral のセレクトメニューを削除し、チャンネルに通知
+        await interaction.response.edit_message(content="✅", view=None)
         old = interaction.user.mention
         new = new_owner.mention
         await channel.send(
@@ -465,9 +460,8 @@ class KickSelectView(discord.ui.View):
 
         # move_to(None) でユーザーを VC から切断する
         await user_to_kick.move_to(None)
-        await interaction.response.edit_message(
-            content=f"{user_to_kick.mention} をキックしました。", view=None
-        )
+        # ephemeral のセレクトメニューを削除し、チャンネルに通知
+        await interaction.response.edit_message(content="✅", view=None)
         await channel.send(
             f"👟 {user_to_kick.mention} がキックされました。"
         )
@@ -510,9 +504,8 @@ class BlockSelectView(discord.ui.View):
         ):
             await user_to_block.move_to(None)
 
-        await interaction.response.edit_message(
-            content=f"{user_to_block.mention} をブロックしました。", view=None
-        )
+        # ephemeral のセレクトメニューを削除し、チャンネルに通知
+        await interaction.response.edit_message(content="✅", view=None)
         await channel.send(
             f"🚫 {user_to_block.mention} がブロックされました。"
         )
@@ -546,9 +539,8 @@ class AllowSelectView(discord.ui.View):
 
         # connect=True で接続を許可
         await channel.set_permissions(user_to_allow, connect=True)
-        await interaction.response.edit_message(
-            content=f"{user_to_allow.mention} を許可しました。", view=None
-        )
+        # ephemeral のセレクトメニューを削除し、チャンネルに通知
+        await interaction.response.edit_message(content="✅", view=None)
         await channel.send(
             f"✅ {user_to_allow.mention} が許可されました。"
         )
@@ -608,10 +600,8 @@ class BitrateSelectMenu(discord.ui.Select[Any]):
                 return
 
         label = f"{bitrate // 1000} kbps"
-        await interaction.response.edit_message(
-            content=f"ビットレートを **{label}** に変更しました。",
-            view=None,
-        )
+        # ephemeral のセレクトメニューを削除し、チャンネルに通知
+        await interaction.response.edit_message(content="✅", view=None)
         if isinstance(channel, discord.VoiceChannel):
             await channel.send(
                 f"🔊 ビットレートが **{label}** に変更されました。"
@@ -669,10 +659,8 @@ class RegionSelectMenu(discord.ui.Select[Any]):
             await channel.edit(rtc_region=region)
 
         region_name = selected if selected != "auto" else "自動"
-        await interaction.response.edit_message(
-            content=f"リージョンを **{region_name}** に変更しました。",
-            view=None,
-        )
+        # ephemeral のセレクトメニューを削除し、チャンネルに通知
+        await interaction.response.edit_message(content="✅", view=None)
         if isinstance(channel, discord.VoiceChannel):
             await channel.send(
                 f"🌏 リージョンが **{region_name}** に変更されました。"
@@ -897,10 +885,9 @@ class ControlPanelView(discord.ui.View):
             )
 
         status = "ロック" if new_locked_state else "ロック解除"
-        await interaction.response.send_message(
-            f"チャンネルを **{status}** しました。", ephemeral=True
-        )
         emoji = "🔒" if new_locked_state else "🔓"
+        # チャンネルに変更通知を送信
+        await interaction.response.defer()
         await channel.send(
             f"{emoji} チャンネルが **{status}** されました。"
         )
@@ -960,10 +947,9 @@ class ControlPanelView(discord.ui.View):
             )
 
         status = "非表示" if new_hidden_state else "表示"
-        await interaction.response.send_message(
-            f"チャンネルを **{status}** にしました。", ephemeral=True
-        )
         emoji = "🙈" if new_hidden_state else "👁️"
+        # チャンネルに変更通知を送信
+        await interaction.response.defer()
         await channel.send(
             f"{emoji} チャンネルが **{status}** になりました。"
         )
@@ -1000,9 +986,8 @@ class ControlPanelView(discord.ui.View):
             button.label = "年齢制限"
 
         status = "年齢制限を設定" if new_nsfw else "年齢制限を解除"
-        await interaction.response.send_message(
-            f"チャンネルの **{status}** しました。", ephemeral=True
-        )
+        # チャンネルに変更通知を送信
+        await interaction.response.defer()
         await channel.send(
             f"🔞 チャンネルの **{status}** されました。"
         )
