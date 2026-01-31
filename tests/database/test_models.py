@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.database.models import (
+    AdminUser,
     BumpConfig,
     BumpReminder,
     Lobby,
@@ -38,26 +39,18 @@ class TestLobbyConstraints:
     ) -> None:
         """同じ lobby_channel_id は重複登録できない。"""
         channel_id = snowflake()
-        db_session.add(
-            Lobby(guild_id=snowflake(), lobby_channel_id=channel_id)
-        )
+        db_session.add(Lobby(guild_id=snowflake(), lobby_channel_id=channel_id))
         await db_session.commit()
 
-        db_session.add(
-            Lobby(guild_id=snowflake(), lobby_channel_id=channel_id)
-        )
+        db_session.add(Lobby(guild_id=snowflake(), lobby_channel_id=channel_id))
         with pytest.raises(IntegrityError):
             await db_session.commit()
 
-    async def test_multiple_lobbies_per_guild(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_multiple_lobbies_per_guild(self, db_session: AsyncSession) -> None:
         """1つのギルドに複数のロビーを作成できる。"""
         guild_id = snowflake()
         for _ in range(3):
-            db_session.add(
-                Lobby(guild_id=guild_id, lobby_channel_id=snowflake())
-            )
+            db_session.add(Lobby(guild_id=guild_id, lobby_channel_id=snowflake()))
         await db_session.commit()
 
         result = await db_session.execute(
@@ -139,27 +132,21 @@ class TestLobbyConstraints:
 class TestLobbyFields:
     """Lobby フィールドの境界値・型テスト。"""
 
-    async def test_default_user_limit_zero(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_default_user_limit_zero(self, db_session: AsyncSession) -> None:
         """default_user_limit のデフォルトは 0。"""
         lobby = Lobby(guild_id=snowflake(), lobby_channel_id=snowflake())
         db_session.add(lobby)
         await db_session.commit()
         assert lobby.default_user_limit == 0
 
-    async def test_category_id_nullable(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_category_id_nullable(self, db_session: AsyncSession) -> None:
         """category_id は None を許容する。"""
         lobby = Lobby(guild_id=snowflake(), lobby_channel_id=snowflake())
         db_session.add(lobby)
         await db_session.commit()
         assert lobby.category_id is None
 
-    async def test_category_id_set(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_category_id_set(self, db_session: AsyncSession) -> None:
         """category_id に値をセットできる。"""
         cat = snowflake()
         lobby = Lobby(
@@ -171,9 +158,7 @@ class TestLobbyFields:
         await db_session.commit()
         assert lobby.category_id == cat
 
-    async def test_large_user_limit(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_large_user_limit(self, db_session: AsyncSession) -> None:
         """大きな user_limit 値を保存できる。"""
         lobby = Lobby(
             guild_id=snowflake(),
@@ -184,9 +169,7 @@ class TestLobbyFields:
         await db_session.commit()
         assert lobby.default_user_limit == 99999
 
-    async def test_unicode_guild_id(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_unicode_guild_id(self, db_session: AsyncSession) -> None:
         """guild_id に数値文字列以外が入っても DB は受け入れる。"""
         lobby = Lobby(
             guild_id="unicode-テスト",
@@ -196,9 +179,7 @@ class TestLobbyFields:
         await db_session.commit()
         assert lobby.guild_id == "unicode-テスト"
 
-    async def test_repr_format(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_repr_format(self, db_session: AsyncSession) -> None:
         """__repr__ に guild_id と channel_id が含まれる。"""
         gid = snowflake()
         cid = snowflake()
@@ -209,9 +190,7 @@ class TestLobbyFields:
         assert gid in text
         assert cid in text
 
-    async def test_id_auto_increment(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_id_auto_increment(self, db_session: AsyncSession) -> None:
         """id は自動採番される。"""
         l1 = Lobby(guild_id=snowflake(), lobby_channel_id=snowflake())
         l2 = Lobby(guild_id=snowflake(), lobby_channel_id=snowflake())
@@ -264,9 +243,7 @@ class TestVoiceSessionConstraints:
         assert voice_session.lobby is not None
         assert voice_session.lobby.id == voice_session.lobby_id
 
-    async def test_default_values(
-        self, db_session: AsyncSession, lobby: Lobby
-    ) -> None:
+    async def test_default_values(self, db_session: AsyncSession, lobby: Lobby) -> None:
         """デフォルト値が正しく設定される。"""
         vs = VoiceSession(
             lobby_id=lobby.id,
@@ -281,9 +258,7 @@ class TestVoiceSessionConstraints:
         assert vs.is_locked is False
         assert vs.is_hidden is False
 
-    async def test_foreign_key_violation(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_foreign_key_violation(self, db_session: AsyncSession) -> None:
         """存在しない lobby_id は FK 違反。"""
         db_session.add(
             VoiceSession(
@@ -312,9 +287,7 @@ class TestVoiceSessionConstraints:
         await db_session.commit()
 
         result = await db_session.execute(
-            select(VoiceSession).where(
-                VoiceSession.lobby_id == lobby.id
-            )
+            select(VoiceSession).where(VoiceSession.lobby_id == lobby.id)
         )
         assert len(list(result.scalars().all())) == 5
 
@@ -343,15 +316,11 @@ class TestVoiceSessionConstraints:
 class TestVoiceSessionFields:
     """VoiceSession フィールドの境界値テスト。"""
 
-    async def test_created_at_auto_set(
-        self, voice_session: VoiceSession
-    ) -> None:
+    async def test_created_at_auto_set(self, voice_session: VoiceSession) -> None:
         """created_at が自動設定される。"""
         assert voice_session.created_at is not None
 
-    async def test_created_at_is_recent(
-        self, voice_session: VoiceSession
-    ) -> None:
+    async def test_created_at_is_recent(self, voice_session: VoiceSession) -> None:
         """created_at がテスト実行時刻と近い。"""
         now = datetime.now(UTC)
         # タイムゾーン無しの場合も考慮
@@ -362,17 +331,13 @@ class TestVoiceSessionFields:
             diff = abs(now - ts)
         assert diff < timedelta(seconds=10)
 
-    async def test_repr_contains_ids(
-        self, voice_session: VoiceSession
-    ) -> None:
+    async def test_repr_contains_ids(self, voice_session: VoiceSession) -> None:
         """__repr__ に channel_id と owner_id が含まれる。"""
         text = repr(voice_session)
         assert voice_session.channel_id in text
         assert voice_session.owner_id in text
 
-    async def test_unicode_name(
-        self, db_session: AsyncSession, lobby: Lobby
-    ) -> None:
+    async def test_unicode_name(self, db_session: AsyncSession, lobby: Lobby) -> None:
         """チャンネル名に Unicode (日本語・絵文字) を使える。"""
         name = "🎮 テストチャンネル"
         vs = VoiceSession(
@@ -386,9 +351,7 @@ class TestVoiceSessionFields:
         await db_session.refresh(vs)
         assert vs.name == name
 
-    async def test_long_name(
-        self, db_session: AsyncSession, lobby: Lobby
-    ) -> None:
+    async def test_long_name(self, db_session: AsyncSession, lobby: Lobby) -> None:
         """長いチャンネル名も保存できる。"""
         name = "A" * 200
         vs = VoiceSession(
@@ -515,9 +478,7 @@ class TestVoiceSessionMemberConstraints:
         await db_session.commit()
 
         result = await db_session.execute(
-            select(VoiceSessionMember).where(
-                VoiceSessionMember.user_id == user_id
-            )
+            select(VoiceSessionMember).where(VoiceSessionMember.user_id == user_id)
         )
         assert len(list(result.scalars().all())) == 3
 
@@ -540,9 +501,7 @@ class TestVoiceSessionMemberConstraints:
         result = await db_session.execute(select(VoiceSessionMember))
         assert list(result.scalars().all()) == []
 
-    async def test_foreign_key_violation(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_foreign_key_violation(self, db_session: AsyncSession) -> None:
         """存在しない voice_session_id は FK 違反。"""
         db_session.add(
             VoiceSessionMember(
@@ -613,9 +572,7 @@ class TestVoiceSessionMemberFields:
 class TestBumpReminderConstraints:
     """BumpReminder モデルの制約テスト。"""
 
-    async def test_unique_guild_service(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_unique_guild_service(self, db_session: AsyncSession) -> None:
         """同じ guild + service の組み合わせは重複登録できない。"""
         guild_id = snowflake()
         service = "DISBOARD"
@@ -659,9 +616,7 @@ class TestBumpReminderConstraints:
         )
         assert len(list(result.scalars().all())) == 2
 
-    async def test_multiple_guilds_same_service(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_multiple_guilds_same_service(self, db_session: AsyncSession) -> None:
         """異なるギルドで同じサービスを登録できる。"""
         service = "DISBOARD"
         for _ in range(3):
@@ -683,9 +638,7 @@ class TestBumpReminderConstraints:
 class TestBumpReminderFields:
     """BumpReminder フィールドのテスト。"""
 
-    async def test_default_is_enabled(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_default_is_enabled(self, db_session: AsyncSession) -> None:
         """is_enabled のデフォルトは True。"""
         reminder = BumpReminder(
             guild_id=snowflake(),
@@ -696,9 +649,7 @@ class TestBumpReminderFields:
         await db_session.commit()
         assert reminder.is_enabled is True
 
-    async def test_remind_at_nullable(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_remind_at_nullable(self, db_session: AsyncSession) -> None:
         """remind_at は None を許容する。"""
         reminder = BumpReminder(
             guild_id=snowflake(),
@@ -709,9 +660,7 @@ class TestBumpReminderFields:
         await db_session.commit()
         assert reminder.remind_at is None
 
-    async def test_remind_at_set(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_remind_at_set(self, db_session: AsyncSession) -> None:
         """remind_at に値をセットできる。"""
         remind_time = datetime.now(UTC) + timedelta(hours=2)
         reminder = BumpReminder(
@@ -724,9 +673,7 @@ class TestBumpReminderFields:
         await db_session.commit()
         assert reminder.remind_at is not None
 
-    async def test_role_id_nullable(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_role_id_nullable(self, db_session: AsyncSession) -> None:
         """role_id は None を許容する。"""
         reminder = BumpReminder(
             guild_id=snowflake(),
@@ -737,9 +684,7 @@ class TestBumpReminderFields:
         await db_session.commit()
         assert reminder.role_id is None
 
-    async def test_role_id_set(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_role_id_set(self, db_session: AsyncSession) -> None:
         """role_id に値をセットできる。"""
         role_id = snowflake()
         reminder = BumpReminder(
@@ -752,9 +697,7 @@ class TestBumpReminderFields:
         await db_session.commit()
         assert reminder.role_id == role_id
 
-    async def test_is_enabled_toggle(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_is_enabled_toggle(self, db_session: AsyncSession) -> None:
         """is_enabled を False に設定して保存できる。"""
         reminder = BumpReminder(
             guild_id=snowflake(),
@@ -766,9 +709,7 @@ class TestBumpReminderFields:
         await db_session.commit()
         assert reminder.is_enabled is False
 
-    async def test_repr_contains_fields(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_repr_contains_fields(self, db_session: AsyncSession) -> None:
         """__repr__ に主要フィールドが含まれる。"""
         guild_id = snowflake()
         reminder = BumpReminder(
@@ -792,9 +733,7 @@ class TestBumpReminderFields:
 class TestBumpConfigConstraints:
     """BumpConfig モデルの制約テスト。"""
 
-    async def test_guild_id_primary_key(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_guild_id_primary_key(self, db_session: AsyncSession) -> None:
         """guild_id が主キーなので重複登録できない。"""
         guild_id = snowflake()
 
@@ -819,9 +758,7 @@ class TestBumpConfigConstraints:
 class TestBumpConfigFields:
     """BumpConfig フィールドのテスト。"""
 
-    async def test_created_at_auto_set(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_created_at_auto_set(self, db_session: AsyncSession) -> None:
         """created_at が自動設定される。"""
         config = BumpConfig(
             guild_id=snowflake(),
@@ -831,9 +768,7 @@ class TestBumpConfigFields:
         await db_session.commit()
         assert config.created_at is not None
 
-    async def test_created_at_is_recent(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_created_at_is_recent(self, db_session: AsyncSession) -> None:
         """created_at がテスト実行時刻と近い。"""
         config = BumpConfig(
             guild_id=snowflake(),
@@ -850,9 +785,7 @@ class TestBumpConfigFields:
             diff = abs(now - ts)
         assert diff < timedelta(seconds=10)
 
-    async def test_repr_contains_ids(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_repr_contains_ids(self, db_session: AsyncSession) -> None:
         """__repr__ に guild_id と channel_id が含まれる。"""
         guild_id = snowflake()
         channel_id = snowflake()
@@ -876,9 +809,7 @@ class TestBumpConfigFields:
 class TestStickyMessageConstraints:
     """StickyMessage モデルの制約テスト。"""
 
-    async def test_channel_id_primary_key(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_channel_id_primary_key(self, db_session: AsyncSession) -> None:
         """channel_id が主キーなので重複登録できない。"""
         channel_id = snowflake()
 
@@ -903,9 +834,7 @@ class TestStickyMessageConstraints:
         with pytest.raises(IntegrityError):
             await db_session.commit()
 
-    async def test_multiple_channels_same_guild(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_multiple_channels_same_guild(self, db_session: AsyncSession) -> None:
         """同じギルドで複数チャンネルに sticky を設定できる。"""
         guild_id = snowflake()
         for _ in range(3):
@@ -928,9 +857,7 @@ class TestStickyMessageConstraints:
 class TestStickyMessageFields:
     """StickyMessage フィールドのテスト。"""
 
-    async def test_default_message_type(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_default_message_type(self, db_session: AsyncSession) -> None:
         """message_type のデフォルトは 'embed'。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -942,9 +869,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.message_type == "embed"
 
-    async def test_message_type_text(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_message_type_text(self, db_session: AsyncSession) -> None:
         """message_type を 'text' に設定できる。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -957,9 +882,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.message_type == "text"
 
-    async def test_empty_title_allowed(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_empty_title_allowed(self, db_session: AsyncSession) -> None:
         """embed でも title を空文字で保存できる（タイトルなし embed）。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -974,9 +897,7 @@ class TestStickyMessageFields:
         assert sticky.description == "Description only embed"
         assert sticky.message_type == "embed"
 
-    async def test_default_cooldown_seconds(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_default_cooldown_seconds(self, db_session: AsyncSession) -> None:
         """cooldown_seconds のデフォルトは 5。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -988,9 +909,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.cooldown_seconds == 5
 
-    async def test_cooldown_seconds_custom(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_cooldown_seconds_custom(self, db_session: AsyncSession) -> None:
         """cooldown_seconds をカスタム値に設定できる。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -1003,9 +922,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.cooldown_seconds == 60
 
-    async def test_message_id_nullable(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_message_id_nullable(self, db_session: AsyncSession) -> None:
         """message_id は None を許容する。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -1017,9 +934,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.message_id is None
 
-    async def test_message_id_set(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_message_id_set(self, db_session: AsyncSession) -> None:
         """message_id に値をセットできる。"""
         msg_id = snowflake()
         sticky = StickyMessage(
@@ -1033,9 +948,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.message_id == msg_id
 
-    async def test_color_nullable(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_color_nullable(self, db_session: AsyncSession) -> None:
         """color は None を許容する。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -1047,9 +960,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.color is None
 
-    async def test_color_set(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_color_set(self, db_session: AsyncSession) -> None:
         """color に値をセットできる。"""
         color = 0xFF5733
         sticky = StickyMessage(
@@ -1063,9 +974,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.color == color
 
-    async def test_last_posted_at_nullable(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_last_posted_at_nullable(self, db_session: AsyncSession) -> None:
         """last_posted_at は None を許容する。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -1077,9 +986,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.last_posted_at is None
 
-    async def test_last_posted_at_set(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_last_posted_at_set(self, db_session: AsyncSession) -> None:
         """last_posted_at に値をセットできる。"""
         posted_time = datetime.now(UTC)
         sticky = StickyMessage(
@@ -1093,9 +1000,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.last_posted_at is not None
 
-    async def test_created_at_auto_set(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_created_at_auto_set(self, db_session: AsyncSession) -> None:
         """created_at が自動設定される。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -1107,9 +1012,7 @@ class TestStickyMessageFields:
         await db_session.commit()
         assert sticky.created_at is not None
 
-    async def test_unicode_content(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_unicode_content(self, db_session: AsyncSession) -> None:
         """title と description に Unicode (日本語・絵文字) を使える。"""
         sticky = StickyMessage(
             channel_id=snowflake(),
@@ -1123,9 +1026,7 @@ class TestStickyMessageFields:
         assert "お知らせ" in sticky.title
         assert "日本語" in sticky.description
 
-    async def test_long_description(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_long_description(self, db_session: AsyncSession) -> None:
         """長い description も保存できる。"""
         long_desc = "A" * 4000  # Embed description limit is 4096
         sticky = StickyMessage(
@@ -1139,9 +1040,7 @@ class TestStickyMessageFields:
         await db_session.refresh(sticky)
         assert len(sticky.description) == 4000
 
-    async def test_repr_contains_ids(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_repr_contains_ids(self, db_session: AsyncSession) -> None:
         """__repr__ に channel_id と guild_id が含まれる。"""
         channel_id = snowflake()
         guild_id = snowflake()
@@ -1307,3 +1206,112 @@ class TestModelsParametrized:
         db_session.add(sticky)
         await db_session.commit()
         assert sticky.title == title
+
+
+# ===========================================================================
+# AdminUser — ユニーク制約・タイムスタンプ
+# ===========================================================================
+
+
+class TestAdminUserConstraints:
+    """AdminUser モデルの制約テスト。"""
+
+    async def test_unique_email(self, db_session: AsyncSession) -> None:
+        """同じ email は重複登録できない。"""
+        email = "admin@example.com"
+        db_session.add(
+            AdminUser(
+                email=email,
+                password_hash="hash1",
+            )
+        )
+        await db_session.commit()
+
+        db_session.add(
+            AdminUser(
+                email=email,
+                password_hash="hash2",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
+
+    async def test_different_emails_allowed(self, db_session: AsyncSession) -> None:
+        """異なる email は複数登録できる。"""
+        for i in range(3):
+            db_session.add(
+                AdminUser(
+                    email=f"admin{i}",
+                    password_hash=f"hash{i}",
+                )
+            )
+        await db_session.commit()
+
+        result = await db_session.execute(select(AdminUser))
+        assert len(list(result.scalars().all())) == 3
+
+
+class TestAdminUserFields:
+    """AdminUser フィールドのテスト。"""
+
+    async def test_created_at_auto_set(self, db_session: AsyncSession) -> None:
+        """created_at が自動設定される。"""
+        admin = AdminUser(
+            email="admin",
+            password_hash="hash",
+        )
+        db_session.add(admin)
+        await db_session.commit()
+        assert admin.created_at is not None
+
+    async def test_created_at_is_recent(self, db_session: AsyncSession) -> None:
+        """created_at がテスト実行時刻と近い。"""
+        admin = AdminUser(
+            email="admin",
+            password_hash="hash",
+        )
+        db_session.add(admin)
+        await db_session.commit()
+
+        now = datetime.now(UTC)
+        ts = admin.created_at
+        if ts.tzinfo is None:
+            diff = abs(now.replace(tzinfo=None) - ts)
+        else:
+            diff = abs(now - ts)
+        assert diff < timedelta(seconds=10)
+
+    async def test_updated_at_auto_set(self, db_session: AsyncSession) -> None:
+        """updated_at が自動設定される。"""
+        admin = AdminUser(
+            email="admin",
+            password_hash="hash",
+        )
+        db_session.add(admin)
+        await db_session.commit()
+        assert admin.updated_at is not None
+
+    async def test_password_hash_stored(self, db_session: AsyncSession) -> None:
+        """password_hash が保存される。"""
+        password_hash = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4"
+        admin = AdminUser(
+            email="admin",
+            password_hash=password_hash,
+        )
+        db_session.add(admin)
+        await db_session.commit()
+        await db_session.refresh(admin)
+        assert admin.password_hash == password_hash
+
+    async def test_repr_contains_email(self, db_session: AsyncSession) -> None:
+        """__repr__ に email が含まれる。"""
+        admin = AdminUser(
+            email="test@example.com",
+            password_hash="hash",
+        )
+        db_session.add(admin)
+        await db_session.commit()
+
+        text = repr(admin)
+        assert "test@example.com" in text
+        assert str(admin.id) in text

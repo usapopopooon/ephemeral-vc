@@ -106,8 +106,7 @@ class StickyEmbedModal(discord.ui.Modal, title="Sticky メッセージ設定 (Em
                 delay_seconds = int(self.delay.value)
             except ValueError:
                 await interaction.response.send_message(
-                    f"無効な遅延値です: `{self.delay.value}`\n"
-                    "数字を入力してください",
+                    f"無効な遅延値です: `{self.delay.value}`\n数字を入力してください",
                     ephemeral=True,
                 )
                 return
@@ -202,8 +201,7 @@ class StickyTextModal(discord.ui.Modal, title="Sticky メッセージ設定 (テ
                 delay_seconds = int(self.delay.value)
             except ValueError:
                 await interaction.response.send_message(
-                    f"無効な遅延値です: `{self.delay.value}`\n"
-                    "数字を入力してください",
+                    f"無効な遅延値です: `{self.delay.value}`\n数字を入力してください",
                     ephemeral=True,
                 )
                 return
@@ -519,11 +517,25 @@ class StickyCog(commands.Cog):
 
         # メッセージを削除
         if sticky.message_id and interaction.channel:
-            with suppress(discord.NotFound, discord.HTTPException):
-                channel = interaction.channel
-                if hasattr(channel, "fetch_message"):
+            channel = interaction.channel
+            if hasattr(channel, "fetch_message"):
+                try:
                     old_message = await channel.fetch_message(int(sticky.message_id))
                     await old_message.delete()
+                except discord.NotFound:
+                    logger.debug(
+                        "Sticky message already deleted: channel=%s message_id=%s",
+                        channel_id,
+                        sticky.message_id,
+                    )
+                except discord.HTTPException as e:
+                    logger.warning(
+                        "Failed to delete sticky message on remove: "
+                        "channel=%s message_id=%s error=%s",
+                        channel_id,
+                        sticky.message_id,
+                        e,
+                    )
 
         # DB から削除
         async with async_session() as session:

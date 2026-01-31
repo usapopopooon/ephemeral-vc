@@ -11,6 +11,8 @@ from src.ui.control_panel import (
     BitrateSelectMenu,
     BitrateSelectView,
     BlockSelectView,
+    CameraAllowSelectView,
+    CameraBanSelectView,
     ControlPanelView,
     KickSelectView,
     RegionSelectMenu,
@@ -21,6 +23,7 @@ from src.ui.control_panel import (
     UserLimitModal,
     _find_panel_message,
     create_control_panel_embed,
+    refresh_panel_embed,
     repost_panel,
 )
 
@@ -99,9 +102,7 @@ def _mock_async_session() -> tuple[MagicMock, AsyncMock]:
     """Create mock for async_session context manager."""
     mock_session = AsyncMock()
     mock_factory = MagicMock()
-    mock_factory.return_value.__aenter__ = AsyncMock(
-        return_value=mock_session
-    )
+    mock_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_factory.return_value.__aexit__ = AsyncMock(return_value=False)
     return mock_factory, mock_session
 
@@ -186,12 +187,13 @@ class TestInteractionCheck:
         voice_session = _make_voice_session(owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await view.interaction_check(interaction)
             assert result is True
@@ -203,12 +205,13 @@ class TestInteractionCheck:
         voice_session = _make_voice_session(owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await view.interaction_check(interaction)
             assert result is False
@@ -220,12 +223,13 @@ class TestInteractionCheck:
         interaction = _make_interaction(user_id=1)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             result = await view.interaction_check(interaction)
             assert result is False
@@ -249,21 +253,21 @@ class TestRenameModal:
         voice_session = _make_voice_session(owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update:
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+        ):
             await modal.on_submit(interaction)
 
-            interaction.channel.edit.assert_awaited_once_with(
-                name="New Name"
-            )
+            interaction.channel.edit.assert_awaited_once_with(name="New Name")
             mock_update.assert_awaited_once()
             # ephemeral ではなく defer() を呼ぶ
             interaction.response.defer.assert_awaited_once()
@@ -306,12 +310,13 @@ class TestRenameModal:
         voice_session = _make_voice_session(owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await modal.on_submit(interaction)
 
@@ -337,16 +342,18 @@ class TestUserLimitModal:
         voice_session = _make_voice_session(owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update:
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+        ):
             await modal.on_submit(interaction)
 
             interaction.channel.edit.assert_awaited_once_with(user_limit=10)
@@ -402,15 +409,17 @@ class TestUserLimitModal:
         voice_session = _make_voice_session(owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ),
         ):
             await modal.on_submit(interaction)
 
@@ -505,21 +514,21 @@ class TestLockButton:
         """未ロック → ロックに切り替え。"""
         view = ControlPanelView(session_id=1)
         interaction = _make_interaction(user_id=1)
-        voice_session = _make_voice_session(
-            owner_id="1", is_locked=False
-        )
+        voice_session = _make_voice_session(owner_id="1", is_locked=False)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update:
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+        ):
             button = view.lock_button
             await view.lock_button.callback(interaction)
 
@@ -541,21 +550,21 @@ class TestLockButton:
         """ロック中 → ロック解除に切り替え。"""
         view = ControlPanelView(session_id=1, is_locked=True)
         interaction = _make_interaction(user_id=1)
-        voice_session = _make_voice_session(
-            owner_id="1", is_locked=True
-        )
+        voice_session = _make_voice_session(owner_id="1", is_locked=True)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update:
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+        ):
             button = view.lock_button
             await view.lock_button.callback(interaction)
 
@@ -579,21 +588,21 @@ class TestHideButton:
         """表示中 → 非表示に切り替え。"""
         view = ControlPanelView(session_id=1)
         interaction = _make_interaction(user_id=1)
-        voice_session = _make_voice_session(
-            owner_id="1", is_hidden=False
-        )
+        voice_session = _make_voice_session(owner_id="1", is_hidden=False)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update:
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+        ):
             button = view.hide_button
             await view.hide_button.callback(interaction)
 
@@ -612,21 +621,21 @@ class TestHideButton:
         """非表示 → 表示に切り替え。"""
         view = ControlPanelView(session_id=1, is_hidden=True)
         interaction = _make_interaction(user_id=1)
-        voice_session = _make_voice_session(
-            owner_id="1", is_hidden=True
-        )
+        voice_session = _make_voice_session(owner_id="1", is_hidden=True)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update:
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+        ):
             button = view.hide_button
             await view.hide_button.callback(interaction)
 
@@ -665,19 +674,22 @@ class TestTransferSelectMenu:
         voice_session = _make_voice_session(owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update, patch(
-            "src.ui.control_panel.repost_panel",
-            new_callable=AsyncMock,
-        ) as mock_repost:
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+            patch(
+                "src.ui.control_panel.repost_panel",
+                new_callable=AsyncMock,
+            ) as mock_repost,
+        ):
             await menu.callback(interaction)
 
             mock_update.assert_awaited_once()
@@ -720,12 +732,13 @@ class TestTransferSelectMenu:
         interaction.guild.get_member = MagicMock(return_value=new_owner)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await menu.callback(interaction)
 
@@ -909,9 +922,7 @@ class TestBitrateSelectMenu:
 
         interaction = _make_interaction(user_id=1)
         interaction.channel.edit = AsyncMock(
-            side_effect=discord.HTTPException(
-                MagicMock(status=400), "Premium required"
-            )
+            side_effect=discord.HTTPException(MagicMock(status=400), "Premium required")
         )
 
         await menu.callback(interaction)
@@ -1187,12 +1198,13 @@ class TestRenameModalEdgeCases:
         interaction = _make_interaction(user_id=1)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await modal.on_submit(interaction)
 
@@ -1212,12 +1224,13 @@ class TestUserLimitModalEdgeCases:
         interaction = _make_interaction(user_id=1)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await modal.on_submit(interaction)
 
@@ -1234,12 +1247,13 @@ class TestUserLimitModalEdgeCases:
         voice_session = _make_voice_session(owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await modal.on_submit(interaction)
 
@@ -1274,12 +1288,13 @@ class TestLockButtonEdgeCases:
         interaction = _make_interaction(user_id=1)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await view.lock_button.callback(interaction)
 
@@ -1314,12 +1329,13 @@ class TestHideButtonEdgeCases:
         interaction = _make_interaction(user_id=1)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await view.hide_button.callback(interaction)
 
@@ -1337,18 +1353,21 @@ class TestHideButtonEdgeCases:
         interaction.channel.members = [m1, m2]
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.ui.control_panel.refresh_panel_embed",
-            new_callable=AsyncMock,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.ui.control_panel.refresh_panel_embed",
+                new_callable=AsyncMock,
+            ),
         ):
             await view.hide_button.callback(interaction)
 
@@ -1455,12 +1474,13 @@ class TestRepostPanel:
         bot.add_view = MagicMock()
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await repost_panel(channel, bot)
 
@@ -1481,12 +1501,13 @@ class TestRepostPanel:
         bot = MagicMock()
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await repost_panel(channel, bot)
 
@@ -1503,12 +1524,13 @@ class TestRepostPanel:
         voice_session = _make_voice_session(owner_id="999")
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await repost_panel(channel, bot)
 
@@ -1534,12 +1556,13 @@ class TestRepostPanel:
         bot.add_view = MagicMock()
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await repost_panel(channel, bot)
 
@@ -1563,16 +1586,18 @@ class TestRepostPanel:
         bot.add_view = MagicMock()
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel._find_panel_message",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel._find_panel_message",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await repost_panel(channel, bot)
 
@@ -1603,9 +1628,7 @@ class TestRepostPanel:
 
         channel.pins = AsyncMock(return_value=[other_bot_msg, user_msg])
         # 履歴にも同じメッセージ (パネルではない)
-        channel.history = MagicMock(
-            return_value=_AsyncIter([other_bot_msg, user_msg])
-        )
+        channel.history = MagicMock(return_value=_AsyncIter([other_bot_msg, user_msg]))
         channel.send = AsyncMock(return_value=MagicMock())
 
         voice_session = _make_voice_session(owner_id="1")
@@ -1613,12 +1636,13 @@ class TestRepostPanel:
         bot.add_view = MagicMock()
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await repost_panel(channel, bot)
 
@@ -1646,22 +1670,22 @@ class TestRepostPanel:
         bot.add_view = MagicMock()
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.ControlPanelView",
-            wraps=ControlPanelView,
-        ) as mock_view_cls:
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.ControlPanelView",
+                wraps=ControlPanelView,
+            ) as mock_view_cls,
+        ):
             await repost_panel(channel, bot)
 
         # ControlPanelView が正しいフラグで呼ばれる
-        mock_view_cls.assert_called_once_with(
-            voice_session.id, True, True, True
-        )
+        mock_view_cls.assert_called_once_with(voice_session.id, True, True, True)
 
     async def test_deletes_unpinned_panel_from_history(self) -> None:
         """ピン留めされていない旧パネルも履歴から見つけて削除する。"""
@@ -1690,12 +1714,13 @@ class TestRepostPanel:
         bot.add_view = MagicMock()
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await repost_panel(channel, bot)
 
@@ -1792,9 +1817,7 @@ class TestFindPanelMessage:
         panel_msg.embeds = [MagicMock(title="ボイスチャンネル設定")]
 
         channel.pins = AsyncMock(
-            side_effect=discord.HTTPException(
-                MagicMock(status=500), "error"
-            )
+            side_effect=discord.HTTPException(MagicMock(status=500), "error")
         )
         channel.history = MagicMock(return_value=_AsyncIter([panel_msg]))
 
@@ -1808,9 +1831,7 @@ class TestFindPanelMessage:
 
         channel.pins = AsyncMock(return_value=[])
         channel.history = MagicMock(
-            side_effect=discord.HTTPException(
-                MagicMock(status=500), "error"
-            )
+            side_effect=discord.HTTPException(MagicMock(status=500), "error")
         )
 
         result = await _find_panel_message(channel)
@@ -1912,9 +1933,7 @@ class TestBlockSelectCallback:
 
         await select.callback(interaction)
 
-        channel.set_permissions.assert_awaited_once_with(
-            user_to_block, connect=False
-        )
+        channel.set_permissions.assert_awaited_once_with(user_to_block, connect=False)
         # VC にいるのでキックもされる
         user_to_block.move_to.assert_awaited_once_with(None)
         # セレクトメニューを非表示にする
@@ -1942,9 +1961,7 @@ class TestBlockSelectCallback:
 
         await select.callback(interaction)
 
-        channel.set_permissions.assert_awaited_once_with(
-            user_to_block, connect=False
-        )
+        channel.set_permissions.assert_awaited_once_with(user_to_block, connect=False)
         # VC にいないのでキックされない
         user_to_block.move_to.assert_not_awaited()
         interaction.response.edit_message.assert_awaited_once()
@@ -2002,9 +2019,7 @@ class TestAllowSelectCallback:
 
         await select.callback(interaction)
 
-        channel.set_permissions.assert_awaited_once_with(
-            user_to_allow, connect=True
-        )
+        channel.set_permissions.assert_awaited_once_with(user_to_allow, connect=True)
         # セレクトメニューを非表示にする
         interaction.response.edit_message.assert_awaited_once()
         assert interaction.response.edit_message.call_args[1]["content"] == "\u200b"
@@ -2088,20 +2103,20 @@ class TestLockButtonOwnerPermissions:
         """ロック時にオーナーにフル権限が付与される。"""
         view = ControlPanelView(session_id=1)
         interaction = _make_interaction(user_id=1)
-        voice_session = _make_voice_session(
-            owner_id="1", is_locked=False
-        )
+        voice_session = _make_voice_session(owner_id="1", is_locked=False)
 
         mock_factory, _ = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.ui.control_panel.update_voice_session",
-            new_callable=AsyncMock,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ),
         ):
             await view.lock_button.callback(interaction)
 
@@ -2114,6 +2129,38 @@ class TestLockButtonOwnerPermissions:
             move_members=True,
             mute_members=True,
             deafen_members=True,
+        )
+
+    async def test_lock_skips_owner_permissions_when_not_member(self) -> None:
+        """interaction.user が Member でない場合、オーナー権限付与をスキップ。"""
+        view = ControlPanelView(session_id=1)
+        interaction = _make_interaction(user_id=1)
+        # interaction.user を discord.User として設定 (Member ではない)
+        interaction.user = MagicMock(spec=discord.User)
+        interaction.user.id = 1
+        interaction.user.mention = "<@1>"
+
+        voice_session = _make_voice_session(owner_id="1", is_locked=False)
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await view.lock_button.callback(interaction)
+
+        # @everyone の権限のみ設定される (オーナー権限はスキップ)
+        assert interaction.channel.set_permissions.await_count == 1
+        interaction.channel.set_permissions.assert_awaited_once_with(
+            interaction.guild.default_role, connect=False
         )
 
 
@@ -2134,3 +2181,489 @@ class TestHideButtonNoGuild:
         await view.hide_button.callback(interaction)
 
         interaction.response.send_message.assert_not_awaited()
+
+
+# ===========================================================================
+# カメラ禁止ボタンテスト
+# ===========================================================================
+
+
+class TestCameraBanButton:
+    """Tests for ControlPanelView.camera_ban_button."""
+
+    async def test_sends_camera_ban_select(self) -> None:
+        """カメラ禁止ボタンはユーザーセレクトを送信する。"""
+        view = ControlPanelView(session_id=1)
+        interaction = _make_interaction(user_id=1)
+
+        await view.camera_ban_button.callback(interaction)
+
+        interaction.response.send_message.assert_awaited_once()
+        kwargs = interaction.response.send_message.call_args[1]
+        assert isinstance(kwargs["view"], CameraBanSelectView)
+        assert kwargs["ephemeral"] is True
+
+
+# ===========================================================================
+# カメラ許可ボタンテスト
+# ===========================================================================
+
+
+class TestCameraAllowButton:
+    """Tests for ControlPanelView.camera_allow_button."""
+
+    async def test_sends_camera_allow_select(self) -> None:
+        """カメラ許可ボタンはユーザーセレクトを送信する。"""
+        view = ControlPanelView(session_id=1)
+        interaction = _make_interaction(user_id=1)
+
+        await view.camera_allow_button.callback(interaction)
+
+        interaction.response.send_message.assert_awaited_once()
+        kwargs = interaction.response.send_message.call_args[1]
+        assert isinstance(kwargs["view"], CameraAllowSelectView)
+        assert kwargs["ephemeral"] is True
+
+
+# ===========================================================================
+# CameraBanSelectView テスト
+# ===========================================================================
+
+
+class TestCameraBanSelectCallback:
+    """Tests for CameraBanSelectView.select_user callback."""
+
+    async def test_camera_ban_success(self) -> None:
+        """メンバーのカメラ配信を禁止する。"""
+        view = CameraBanSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+        channel = interaction.channel
+
+        user_to_ban = MagicMock(spec=discord.Member)
+        user_to_ban.mention = "<@2>"
+
+        select._values = [user_to_ban]
+
+        await select.callback(interaction)
+
+        channel.set_permissions.assert_awaited_once_with(user_to_ban, stream=False)
+        # セレクトメニューを非表示にする
+        interaction.response.edit_message.assert_awaited_once()
+        assert interaction.response.edit_message.call_args[1]["content"] == "\u200b"
+        # チャンネルに通知メッセージが送信される
+        channel.send.assert_awaited_once()
+        msg = channel.send.call_args[0][0]
+        assert "カメラ配信が禁止" in msg
+
+    async def test_camera_ban_non_voice_channel(self) -> None:
+        """VoiceChannel でない場合は何もしない。"""
+        view = CameraBanSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+
+        select._values = [MagicMock(spec=discord.Member)]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+    async def test_camera_ban_non_member(self) -> None:
+        """Member でない場合は何もしない。"""
+        view = CameraBanSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+
+        non_member = MagicMock(spec=discord.User)
+
+        select._values = [non_member]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+
+# ===========================================================================
+# CameraAllowSelectView テスト
+# ===========================================================================
+
+
+class TestCameraAllowSelectCallback:
+    """Tests for CameraAllowSelectView.select_user callback."""
+
+    async def test_camera_allow_success(self) -> None:
+        """メンバーのカメラ配信を許可する。"""
+        view = CameraAllowSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+        channel = interaction.channel
+
+        user_to_allow = MagicMock(spec=discord.Member)
+        user_to_allow.mention = "<@2>"
+
+        select._values = [user_to_allow]
+
+        await select.callback(interaction)
+
+        channel.set_permissions.assert_awaited_once_with(user_to_allow, stream=None)
+        # セレクトメニューを非表示にする
+        interaction.response.edit_message.assert_awaited_once()
+        assert interaction.response.edit_message.call_args[1]["content"] == "\u200b"
+        # チャンネルに通知メッセージが送信される
+        channel.send.assert_awaited_once()
+        msg = channel.send.call_args[0][0]
+        assert "カメラ配信が許可" in msg
+
+    async def test_camera_allow_non_voice_channel(self) -> None:
+        """VoiceChannel でない場合は何もしない。"""
+        view = CameraAllowSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+
+        select._values = [MagicMock(spec=discord.Member)]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+    async def test_camera_allow_non_member(self) -> None:
+        """Member でない場合は何もしない。"""
+        view = CameraAllowSelectView()
+        select = view.children[0]
+
+        interaction = _make_interaction(user_id=1)
+
+        non_member = MagicMock(spec=discord.User)
+
+        select._values = [non_member]
+
+        await select.callback(interaction)
+
+        interaction.response.edit_message.assert_not_awaited()
+
+
+# ===========================================================================
+# refresh_panel_embed テスト
+# ===========================================================================
+
+
+class TestRefreshPanelEmbed:
+    """Tests for refresh_panel_embed function."""
+
+    async def test_refresh_success(self) -> None:
+        """正常にパネル Embed を更新する。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.id = 100
+        channel.nsfw = False
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        owner = MagicMock(spec=discord.Member)
+        owner.mention = "<@1>"
+        channel.guild.get_member = MagicMock(return_value=owner)
+
+        # パネルメッセージ
+        panel_msg = MagicMock()
+        panel_msg.author = channel.guild.me
+        panel_msg.embeds = [MagicMock(title="ボイスチャンネル設定")]
+        panel_msg.edit = AsyncMock()
+        channel.pins = AsyncMock(return_value=[panel_msg])
+
+        voice_session = _make_voice_session(owner_id="1")
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+        ):
+            await refresh_panel_embed(channel)
+
+        # パネルメッセージが edit される
+        panel_msg.edit.assert_awaited_once()
+        kwargs = panel_msg.edit.call_args[1]
+        assert "embed" in kwargs
+        assert "view" in kwargs
+
+    async def test_no_session_returns_early(self) -> None:
+        """セッションがない場合は早期リターン。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.id = 100
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            await refresh_panel_embed(channel)
+
+        # チャンネルの pins や history は呼ばれない
+        channel.pins.assert_not_called()
+
+    async def test_no_owner_returns_early(self) -> None:
+        """オーナーが見つからない場合は早期リターン。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.id = 100
+        channel.guild = MagicMock(spec=discord.Guild)
+        channel.guild.get_member = MagicMock(return_value=None)
+
+        voice_session = _make_voice_session(owner_id="999")
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+        ):
+            await refresh_panel_embed(channel)
+
+        # パネル検索が呼ばれない
+        channel.pins.assert_not_called()
+
+    async def test_no_panel_message_skips_edit(self) -> None:
+        """パネルメッセージが見つからない場合は edit しない。"""
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.id = 100
+        channel.guild = MagicMock(spec=discord.Guild)
+
+        owner = MagicMock(spec=discord.Member)
+        channel.guild.get_member = MagicMock(return_value=owner)
+        channel.pins = AsyncMock(return_value=[])
+        channel.history = MagicMock(return_value=_AsyncIter([]))
+
+        voice_session = _make_voice_session(owner_id="1")
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+        ):
+            await refresh_panel_embed(channel)
+
+        # パネルが見つからないので edit は呼ばれない (エラーにならない)
+
+
+# ===========================================================================
+# RenameModal — 非VoiceChannel時のdeferテスト
+# ===========================================================================
+
+
+class TestRenameModalNonVoiceChannel:
+    """Tests for RenameModal when channel is not VoiceChannel."""
+
+    async def test_non_voice_channel_defers(self) -> None:
+        """VoiceChannel でない場合、defer のみ呼ばれる。"""
+        modal = RenameModal(session_id=1)
+        modal.name = MagicMock()
+        modal.name.value = "New Name"
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+        voice_session = _make_voice_session(owner_id="1")
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await modal.on_submit(interaction)
+
+        # defer が呼ばれる
+        interaction.response.defer.assert_awaited_once()
+        # チャンネル名変更は呼ばれない (VoiceChannel でないため)
+        interaction.channel.edit.assert_not_awaited()
+        # チャンネルへの send も呼ばれない
+        interaction.channel.send.assert_not_awaited()
+
+
+# ===========================================================================
+# UserLimitModal — 非VoiceChannel時のdeferテスト
+# ===========================================================================
+
+
+class TestUserLimitModalNonVoiceChannel:
+    """Tests for UserLimitModal when channel is not VoiceChannel."""
+
+    async def test_non_voice_channel_defers(self) -> None:
+        """VoiceChannel でない場合、defer のみ呼ばれる。"""
+        modal = UserLimitModal(session_id=1)
+        modal.limit = MagicMock()
+        modal.limit.value = "10"
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+        voice_session = _make_voice_session(owner_id="1")
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await modal.on_submit(interaction)
+
+        # defer が呼ばれる
+        interaction.response.defer.assert_awaited_once()
+        # 人数制限変更は呼ばれない (VoiceChannel でないため)
+        interaction.channel.edit.assert_not_awaited()
+        # チャンネルへの send も呼ばれない
+        interaction.channel.send.assert_not_awaited()
+
+
+# ===========================================================================
+# RegionSelectMenu — 非VoiceChannel時のテスト
+# ===========================================================================
+
+
+class TestRegionSelectMenuNonVoiceChannel:
+    """Tests for RegionSelectMenu when channel is not VoiceChannel."""
+
+    async def test_non_voice_channel_skips_edit_and_send(self) -> None:
+        """VoiceChannel でない場合、edit と send がスキップされる。"""
+        options = [discord.SelectOption(label="日本", value="japan")]
+        menu = RegionSelectMenu(options)
+        menu._values = ["japan"]
+
+        interaction = _make_interaction(user_id=1, is_voice=False)
+
+        await menu.callback(interaction)
+
+        # セレクトメニューは閉じられる
+        interaction.response.edit_message.assert_awaited_once()
+        assert interaction.response.edit_message.call_args[1]["content"] == "\u200b"
+        # チャンネルへの通知は送信されない
+        interaction.channel.send.assert_not_awaited()
+
+
+# ===========================================================================
+# TransferSelectMenu — 権限移行テスト
+# ===========================================================================
+
+
+class TestTransferSelectMenuPermissionMigration:
+    """Tests for TransferSelectMenu permission migration."""
+
+    async def test_permission_migration_with_member_user(self) -> None:
+        """interaction.user が Member の場合、旧オーナーの権限が削除される。"""
+        options = [discord.SelectOption(label="User2", value="2")]
+        menu = TransferSelectMenu(options)
+        menu._values = ["2"]
+
+        interaction = _make_interaction(user_id=1)
+        # interaction.user を明示的に discord.Member として設定
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.user.id = 1
+        interaction.user.mention = "<@1>"
+
+        new_owner = MagicMock(spec=discord.Member)
+        new_owner.id = 2
+        new_owner.mention = "<@2>"
+        interaction.guild.get_member = MagicMock(return_value=new_owner)
+
+        voice_session = _make_voice_session(owner_id="1")
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.ui.control_panel.repost_panel",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await menu.callback(interaction)
+
+        # 旧オーナーの権限が削除される
+        interaction.channel.set_permissions.assert_any_await(
+            interaction.user,
+            read_message_history=None,
+        )
+        # 新オーナーに権限が付与される
+        interaction.channel.set_permissions.assert_any_await(
+            new_owner,
+            read_message_history=True,
+        )
+
+    async def test_permission_migration_with_non_member_user(self) -> None:
+        """interaction.user が Member でない場合、旧オーナー権限削除をスキップ。"""
+        options = [discord.SelectOption(label="User2", value="2")]
+        menu = TransferSelectMenu(options)
+        menu._values = ["2"]
+
+        interaction = _make_interaction(user_id=1)
+        # interaction.user を discord.User として設定 (Member ではない)
+        interaction.user = MagicMock(spec=discord.User)
+        interaction.user.id = 1
+        interaction.user.mention = "<@1>"
+
+        new_owner = MagicMock(spec=discord.Member)
+        new_owner.id = 2
+        new_owner.mention = "<@2>"
+        interaction.guild.get_member = MagicMock(return_value=new_owner)
+
+        voice_session = _make_voice_session(owner_id="1")
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.ui.control_panel.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.ui.control_panel.repost_panel",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await menu.callback(interaction)
+
+        # 新オーナーに権限が付与される (これだけ)
+        assert interaction.channel.set_permissions.await_count == 1
+        interaction.channel.set_permissions.assert_awaited_once_with(
+            new_owner,
+            read_message_history=True,
+        )

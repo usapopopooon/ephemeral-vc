@@ -1,0 +1,48 @@
+{
+  "name": "Discord Util Bot",
+  "description": "Discord utility bot with web admin panel",
+  "repository": "https://github.com/your-username/discord-util-bot",
+  "keywords": ["discord", "bot", "python", "fastapi"],
+  "env": {
+    "DISCORD_TOKEN": {
+      "description": "Discord bot token from Discord Developer Portal",
+      "required": true
+    },
+    "DATABASE_URL": {
+      "description": "PostgreSQL database URL (automatically set by Heroku Postgres addon)",
+      "required": true
+    },
+    "ADMIN_EMAIL": {
+      "description": "Web admin panel email",
+      "value": "admin@example.com"
+    },
+    "ADMIN_PASSWORD": {
+      "description": "Web admin panel password (required for admin access)",
+      "required": true
+    },
+    "SESSION_SECRET_KEY": {
+      "description": "Secret key for session signing",
+      "generator": "secret"
+    },
+    "SECURE_COOKIE": {
+      "description": "Use secure cookies (set to true for HTTPS)",
+      "value": "true"
+    }
+  },
+  "addons": ["heroku-postgresql:essential-0"],
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "eco"
+    },
+    "web": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}

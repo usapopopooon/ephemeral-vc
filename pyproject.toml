@@ -12,6 +12,12 @@ dependencies = [
     "pydantic-settings~=2.0",
     "asyncpg~=0.30.0",
     "greenlet~=3.0.0",
+    "fastapi~=0.115.0",
+    "uvicorn[standard]~=0.34.0",
+    "python-multipart~=0.0.20",
+    "itsdangerous~=2.2.0",
+    "bcrypt~=4.2.0",
+    "psycopg2-binary~=2.9.0",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +29,7 @@ dev = [
     "mypy~=1.8",
     "ruff~=0.14.0",
     "faker~=37.0",
+    "httpx~=0.28.0",
 ]
 
 [build-system]
@@ -50,6 +57,12 @@ select = [
     "SIM",    # flake8-simplify
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"src/web/app.py" = ["B008"]  # FastAPI Depends() is standard pattern
+"src/web/templates.py" = ["E501"]  # HTML templates have long lines
+"tests/**/conftest.py" = ["ARG001"]  # pytest fixtures used for side effects
+"tests/**/test_*.py" = ["ARG002"]  # pytest fixtures used for side effects
+
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
 
@@ -67,6 +80,7 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.coverage.run]
 source = ["src"]
 branch = true
+concurrency = ["greenlet", "thread"]
 omit = [
     "*/migrations/*",
 ]

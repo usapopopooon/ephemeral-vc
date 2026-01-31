@@ -1,0 +1,1 @@
+"""Web admin panel tests."""

@@ -39,5 +39,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # bump_configs テーブルを削除
-    op.drop_table("bump_configs")
+    # bump_configs テーブルを削除 (存在する場合のみ)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "bump_configs" in inspector.get_table_names():
+        op.drop_table("bump_configs")

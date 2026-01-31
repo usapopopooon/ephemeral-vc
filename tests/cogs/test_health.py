@@ -396,9 +396,10 @@ class TestHeartbeatLogging:
         """ハートビート時にログが出力される。"""
         cog = _make_cog(latency=0.05, guild_count=2)
 
-        with patch("src.cogs.health.settings") as mock_settings, patch(
-            "src.cogs.health.logger"
-        ) as mock_logger:
+        with (
+            patch("src.cogs.health.settings") as mock_settings,
+            patch("src.cogs.health.logger") as mock_logger,
+        ):
             mock_settings.health_channel_id = 0
             await cog._heartbeat()  # type: ignore[misc]
 

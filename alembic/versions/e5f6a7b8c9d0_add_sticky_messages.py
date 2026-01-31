@@ -50,5 +50,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_sticky_messages_guild_id", table_name="sticky_messages")
-    op.drop_table("sticky_messages")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "sticky_messages" in inspector.get_table_names():
+        op.drop_index("ix_sticky_messages_guild_id", table_name="sticky_messages")
+        op.drop_table("sticky_messages")

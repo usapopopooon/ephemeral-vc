@@ -29,16 +29,12 @@ def _make_voice_session(
 def _mock_async_session() -> MagicMock:
     mock_session = AsyncMock()
     mock_factory = MagicMock()
-    mock_factory.return_value.__aenter__ = AsyncMock(
-        return_value=mock_session
-    )
+    mock_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_factory.return_value.__aexit__ = AsyncMock(return_value=False)
     return mock_factory
 
 
-def _make_channel(
-    *, owner: MagicMock | None = None
-) -> MagicMock:
+def _make_channel(*, owner: MagicMock | None = None) -> MagicMock:
     channel = MagicMock(spec=discord.VoiceChannel)
     channel.id = 100
     channel.nsfw = False
@@ -72,12 +68,13 @@ class TestRefreshPanelEmbed:
         channel.pins = AsyncMock(return_value=[panel_msg])
 
         mock_factory = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await refresh_panel_embed(channel)
 
@@ -91,12 +88,13 @@ class TestRefreshPanelEmbed:
         channel = _make_channel()
 
         mock_factory = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await refresh_panel_embed(channel)
 
@@ -108,12 +106,13 @@ class TestRefreshPanelEmbed:
         voice_session = _make_voice_session()
 
         mock_factory = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await refresh_panel_embed(channel)
 
@@ -133,12 +132,13 @@ class TestRefreshPanelEmbed:
         channel.pins = AsyncMock(return_value=[other_msg])
 
         mock_factory = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await refresh_panel_embed(channel)
 
@@ -161,12 +161,13 @@ class TestRefreshPanelEmbed:
         channel.pins = AsyncMock(return_value=[user_msg])
 
         mock_factory = _mock_async_session()
-        with patch(
-            "src.ui.control_panel.async_session", mock_factory
-        ), patch(
-            "src.ui.control_panel.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.ui.control_panel.async_session", mock_factory),
+            patch(
+                "src.ui.control_panel.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await refresh_panel_embed(channel)
 

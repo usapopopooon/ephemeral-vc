@@ -33,9 +33,7 @@ fake = Faker()
 class TestLobbyWithFaker:
     """faker で生成したデータでの Lobby テスト。"""
 
-    async def test_create_with_all_options(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_create_with_all_options(self, db_session: AsyncSession) -> None:
         """全オプション指定で Lobby を作成できる。"""
         gid = snowflake()
         cid = snowflake()
@@ -72,9 +70,7 @@ class TestLobbyWithFaker:
         assert found is not None
         assert found.lobby_channel_id == target_cid
 
-    async def test_get_lobbies_filters_by_guild(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_lobbies_filters_by_guild(self, db_session: AsyncSession) -> None:
         """guild_id でフィルタされる。"""
         guild_a = snowflake()
         guild_b = snowflake()
@@ -94,9 +90,7 @@ class TestLobbyWithFaker:
         assert len(await get_lobbies_by_guild(db_session, guild_a)) == 3
         assert len(await get_lobbies_by_guild(db_session, guild_b)) == 2
 
-    async def test_get_lobbies_empty_guild(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_lobbies_empty_guild(self, db_session: AsyncSession) -> None:
         """存在しないギルドは空リスト。"""
         result = await get_lobbies_by_guild(db_session, snowflake())
         assert result == []
@@ -119,9 +113,7 @@ class TestLobbyWithFaker:
 
         assert await get_voice_session(db_session, ch_id) is None
 
-    async def test_delete_nonexistent_lobby(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_delete_nonexistent_lobby(self, db_session: AsyncSession) -> None:
         """存在しない ID の削除は False。"""
         assert await delete_lobby(db_session, 999999) is False
 
@@ -191,9 +183,7 @@ class TestVoiceSessionWithFaker:
         sessions = await get_all_voice_sessions(db_session)
         assert len(sessions) == count
 
-    async def test_get_all_sessions_empty(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_all_sessions_empty(self, db_session: AsyncSession) -> None:
         """セッションがなければ空リスト。"""
         assert await get_all_voice_sessions(db_session) == []
 
@@ -206,9 +196,7 @@ class TestUpdateVoiceSession:
     ) -> None:
         """名前だけ更新できる。"""
         new_name = fake.word()
-        updated = await update_voice_session(
-            db_session, voice_session, name=new_name
-        )
+        updated = await update_voice_session(db_session, voice_session, name=new_name)
         assert updated.name == new_name
 
     async def test_update_user_limit(
@@ -225,18 +213,14 @@ class TestUpdateVoiceSession:
         self, db_session: AsyncSession, voice_session: VoiceSession
     ) -> None:
         """is_locked だけ更新できる。"""
-        updated = await update_voice_session(
-            db_session, voice_session, is_locked=True
-        )
+        updated = await update_voice_session(db_session, voice_session, is_locked=True)
         assert updated.is_locked is True
 
     async def test_update_is_hidden(
         self, db_session: AsyncSession, voice_session: VoiceSession
     ) -> None:
         """is_hidden だけ更新できる。"""
-        updated = await update_voice_session(
-            db_session, voice_session, is_hidden=True
-        )
+        updated = await update_voice_session(db_session, voice_session, is_hidden=True)
         assert updated.is_hidden is True
 
     async def test_update_owner_id(
@@ -290,9 +274,7 @@ class TestDeleteVoiceSession:
         assert await delete_voice_session(db_session, ch_id) is True
         assert await get_voice_session(db_session, ch_id) is None
 
-    async def test_delete_nonexistent(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_delete_nonexistent(self, db_session: AsyncSession) -> None:
         """存在しない channel_id の削除は False。"""
         assert await delete_voice_session(db_session, snowflake()) is False
 
@@ -337,13 +319,9 @@ class TestServiceEdgeCases:
     ) -> None:
         """同じ lobby_channel_id で create_lobby を2回呼ぶと IntegrityError。"""
         cid = snowflake()
-        await create_lobby(
-            db_session, guild_id=snowflake(), lobby_channel_id=cid
-        )
+        await create_lobby(db_session, guild_id=snowflake(), lobby_channel_id=cid)
         with pytest.raises(IntegrityError):
-            await create_lobby(
-                db_session, guild_id=snowflake(), lobby_channel_id=cid
-            )
+            await create_lobby(db_session, guild_id=snowflake(), lobby_channel_id=cid)
 
     async def test_create_voice_session_duplicate_channel_id(
         self, db_session: AsyncSession, lobby: Lobby
@@ -386,9 +364,7 @@ class TestServiceEdgeCases:
         result = await get_lobby_by_channel_id(db_session, snowflake())
         assert result is None
 
-    async def test_get_voice_session_not_found(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_voice_session_not_found(self, db_session: AsyncSession) -> None:
         """存在しない channel_id は None を返す。"""
         result = await get_voice_session(db_session, snowflake())
         assert result is None
@@ -408,9 +384,7 @@ class TestServiceEdgeCases:
         original_locked = voice_session.is_locked
         original_hidden = voice_session.is_hidden
 
-        await update_voice_session(
-            db_session, voice_session, name="changed"
-        )
+        await update_voice_session(db_session, voice_session, name="changed")
 
         assert voice_session.name == "changed"
         assert voice_session.owner_id == original_owner

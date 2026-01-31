@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-# Set dummy token before importing Settings to avoid module-level error
+# モジュールレベルのエラーを回避するため、Settings インポート前にダミートークンを設定
 os.environ.setdefault("DISCORD_TOKEN", "test-token")
 
 from src.config import Settings  # noqa: E402
@@ -22,9 +22,7 @@ class TestAsyncDatabaseUrl:
             discord_token="test",
             database_url="postgres://user:pass@host:5432/db",
         )
-        assert s.async_database_url == (
-            "postgresql+asyncpg://user:pass@host:5432/db"
-        )
+        assert s.async_database_url == ("postgresql+asyncpg://user:pass@host:5432/db")
 
     def test_postgresql_url_converted(self) -> None:
         """Test postgresql:// is converted to postgresql+asyncpg://."""
@@ -32,9 +30,7 @@ class TestAsyncDatabaseUrl:
             discord_token="test",
             database_url="postgresql://user:pass@host:5432/db",
         )
-        assert s.async_database_url == (
-            "postgresql+asyncpg://user:pass@host:5432/db"
-        )
+        assert s.async_database_url == ("postgresql+asyncpg://user:pass@host:5432/db")
 
     def test_already_async_url_unchanged(self) -> None:
         """Test that postgresql+asyncpg:// URLs are not modified."""
@@ -42,9 +38,7 @@ class TestAsyncDatabaseUrl:
             discord_token="test",
             database_url="postgresql+asyncpg://user:pass@host:5432/db",
         )
-        assert s.async_database_url == (
-            "postgresql+asyncpg://user:pass@host:5432/db"
-        )
+        assert s.async_database_url == ("postgresql+asyncpg://user:pass@host:5432/db")
 
     def test_default_database_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test the default database URL."""
@@ -68,9 +62,7 @@ class TestAsyncDatabaseUrl:
             discord_token="test",
             database_url="postgresql://user:p%40ss@host:5432/db",
         )
-        assert s.async_database_url == (
-            "postgresql+asyncpg://user:p%40ss@host:5432/db"
-        )
+        assert s.async_database_url == ("postgresql+asyncpg://user:p%40ss@host:5432/db")
 
     def test_url_without_port(self) -> None:
         """ポート省略の URL が変換される。"""
@@ -86,9 +78,7 @@ class TestAsyncDatabaseUrl:
             discord_token="test",
             database_url="postgres://user@postgres/db",
         )
-        assert s.async_database_url == (
-            "postgresql+asyncpg://user@postgres/db"
-        )
+        assert s.async_database_url == ("postgresql+asyncpg://user@postgres/db")
 
     def test_async_url_preserves_path(self) -> None:
         """データベース名やパスが保持される。"""
@@ -102,9 +92,7 @@ class TestAsyncDatabaseUrl:
 class TestHealthChannelId:
     """health_channel_id フィールドのテスト。"""
 
-    def test_default_is_zero(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_default_is_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """デフォルトは 0。"""
         monkeypatch.delenv("HEALTH_CHANNEL_ID", raising=False)
         s = Settings(

@@ -10,18 +10,143 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d discord_util_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   bot:
     build: .
     restart: unless-stopped
+    init: true  # Proper signal handling (backup for tini in Dockerfile)
+    stop_grace_period: 10s  # Allow graceful shutdown
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://user:password@db:5432/discord_util_bot
     volumes:
+      - ./src:/app/src
       - ./data:/app/data
+
+  web:
+    build: .
+    restart: unless-stopped
+    init: true  # Proper signal handling
+    stop_grace_period: 10s  # Allow graceful shutdown
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@db:5432/discord_util_bot
+      SECURE_COOKIE: "false"  # Local dev uses HTTP
+      # Local mail server (Mailpit) - no auth required
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_EMAIL: noreply@example.com
+      SMTP_USE_TLS: "false"
+      APP_URL: http://localhost:8000
+    ports:
+      - "8000:8000"
+    command: uvicorn src.web.app:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    volumes:
+      - ./src:/app/src
+
+  mailpit:
+    image: axllent/mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"  # Web UI
+      - "1025:1025"  # SMTP
+
+  # Test database (isolated from development database)
+  test-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: discord_util_bot_test
+    # No port mapping - only accessible from test container
+    # No volume - data is ephemeral (recreated each test run)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d discord_util_bot_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - dev
+
+  # Development tools (use with: docker compose run --rm <service>)
+  test:
+    build:
+      context: .
+      target: dev
+    init: true  # Proper signal handling
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      # Use separate test database to avoid corrupting dev data
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@test-db:5432/discord_util_bot_test
+      TEST_DATABASE_URL: postgresql+asyncpg://test_user:test_password@test-db:5432/discord_util_bot_test
+      TEST_DATABASE_URL_SYNC: postgresql://test_user:test_password@test-db:5432/discord_util_bot_test
+      DISCORD_TOKEN: "test_token_for_testing"
+    command: pytest -v --cov=src --cov-report=term-missing
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+    profiles:
+      - dev
+
+  lint:
+    build:
+      context: .
+      target: dev
+    command: sh -c "ruff check src tests && ruff format --check src tests && mypy src"
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+    profiles:
+      - dev
+
+  format:
+    build:
+      context: .
+      target: dev
+    command: sh -c "ruff check --fix src tests && ruff format src tests"
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+    profiles:
+      - dev
+
+  migrate:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://user:password@db:5432/discord_util_bot
+    command: alembic upgrade head
+    volumes:
+      - ./alembic:/app/alembic
+    profiles:
+      - dev
 
 volumes:
   pgdata:

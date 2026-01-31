@@ -188,9 +188,7 @@ class BumpNotificationView(discord.ui.View):
 
     def _update_role_button(self) -> None:
         """ロール変更ボタンの custom_id を設定する。"""
-        self.role_button.custom_id = (
-            f"bump_role:{self.guild_id}:{self.service_name}"
-        )
+        self.role_button.custom_id = f"bump_role:{self.guild_id}:{self.service_name}"
 
     @discord.ui.button(label="通知を無効にする", style=discord.ButtonStyle.secondary)
     async def toggle_button(
@@ -235,9 +233,7 @@ class BumpNotificationView(discord.ui.View):
             if reminder:
                 current_role_id = reminder.role_id
 
-        view = BumpRoleSelectView(
-            self.guild_id, self.service_name, current_role_id
-        )
+        view = BumpRoleSelectView(self.guild_id, self.service_name, current_role_id)
         await interaction.response.send_message(
             f"**{self.service_name}** の通知先ロールを選択してください。",
             view=view,
@@ -624,8 +620,11 @@ class BumpCog(commands.Cog):
         channel = self.bot.get_channel(int(reminder.channel_id))
         if not isinstance(channel, discord.TextChannel):
             logger.warning(
-                "Reminder channel %s not found or not a text channel",
+                "Reminder channel %s not found or not a text channel "
+                "(guild=%s, service=%s)",
                 reminder.channel_id,
+                reminder.guild_id,
+                reminder.service_name,
             )
             return
 
@@ -672,7 +671,13 @@ class BumpCog(commands.Cog):
                 reminder.service_name,
             )
         except discord.HTTPException as e:
-            logger.error("Failed to send bump reminder: %s", e)
+            logger.error(
+                "Failed to send bump reminder: guild=%s channel=%s service=%s error=%s",
+                reminder.guild_id,
+                reminder.channel_id,
+                reminder.service_name,
+                e,
+            )
 
     # ==========================================================================
     # スラッシュコマンド

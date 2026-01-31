@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import time
 
 import discord
@@ -45,6 +46,8 @@ from src.ui.control_panel import (
 
 # デフォルトの VC リージョン (サーバー地域)。"japan" = 東京リージョン
 DEFAULT_RTC_REGION = "japan"
+
+logger = logging.getLogger(__name__)
 
 
 class VoiceCog(commands.Cog):
@@ -121,9 +124,7 @@ class VoiceCog(commands.Cog):
             await self._handle_channel_leave(member, before.channel)
 
     @commands.Cog.listener()
-    async def on_guild_channel_delete(
-        self, channel: discord.abc.GuildChannel
-    ) -> None:
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
         """Discord 上でチャンネルが削除されたときに呼ばれるリスナー。
 
         管理者が手動で一時 VC を削除した場合、on_voice_state_update は
@@ -171,9 +172,7 @@ class VoiceCog(commands.Cog):
         async with async_session() as session:
             voice_session = await get_voice_session(session, str(channel_id))
             if voice_session:
-                await add_voice_session_member(
-                    session, voice_session.id, str(user_id)
-                )
+                await add_voice_session_member(session, voice_session.id, str(user_id))
 
     async def _remove_join_from_db(self, channel_id: int, user_id: int) -> None:
         """メンバーの参加記録を DB から削除する。
@@ -298,15 +297,32 @@ class VoiceCog(commands.Cog):
                         reason = "人数制限を超えているため"
 
             if should_kick:
+                logger.info(
+                    "Kicking member %s from channel %s: %s",
+                    member.id,
+                    channel.id,
+                    reason,
+                )
                 # キック実行
-                with contextlib.suppress(discord.HTTPException):
+                try:
                     await member.move_to(None)
-                # チャンネルに通知
-                with contextlib.suppress(discord.HTTPException):
-                    await channel.send(
-                        f"⚠️ {member.mention} は{reason}入室できません。"
+                except discord.HTTPException as e:
+                    logger.warning(
+                        "Failed to kick member %s from channel %s: %s",
+                        member.id,
+                        channel.id,
+                        e,
                     )
-                # DM で本人に通知
+                # チャンネルに通知
+                try:
+                    await channel.send(f"⚠️ {member.mention} は{reason}入室できません。")
+                except discord.HTTPException as e:
+                    logger.debug(
+                        "Failed to send kick notification to channel %s: %s",
+                        channel.id,
+                        e,
+                    )
+                # DM で本人に通知 (失敗しても問題ない)
                 with contextlib.suppress(discord.HTTPException, discord.Forbidden):
                     await member.send(
                         f"⚠️ **{channel.name}** は{reason}入室できませんでした。"
@@ -334,9 +350,7 @@ class VoiceCog(commands.Cog):
         """
         async with async_session() as session:
             # DB からロビー情報を取得。ロビーでなければ何もしない
-            lobby = await get_lobby_by_channel_id(
-                session, str(channel.id)
-            )
+            lobby = await get_lobby_by_channel_id(session, str(channel.id))
             if not lobby:
                 return
 
@@ -393,9 +407,7 @@ class VoiceCog(commands.Cog):
                 await new_channel.set_permissions(
                     guild.default_role, read_message_history=False
                 )
-                await new_channel.set_permissions(
-                    member, read_message_history=True
-                )
+                await new_channel.set_permissions(member, read_message_history=True)
 
                 # メンバーをロビーから新しい VC に移動
                 await member.move_to(new_channel)
@@ -408,23 +420,44 @@ class VoiceCog(commands.Cog):
                     voice_session.is_hidden,
                 )
                 self.bot.add_view(view)
-                panel_msg = await new_channel.send(
-                    embed=embed, view=view
-                )
+                panel_msg = await new_channel.send(embed=embed, view=view)
 
                 # コントロールパネルをピン留めする。
                 # _transfer_ownership で pins() から確実に見つけられるようにする。
-                with contextlib.suppress(discord.HTTPException):
+                try:
                     await panel_msg.pin()
+                except discord.HTTPException as e:
+                    logger.debug(
+                        "Failed to pin control panel in channel %s: %s",
+                        new_channel.id,
+                        e,
+                    )
 
-            except discord.HTTPException:
+                logger.info(
+                    "Created ephemeral VC %s for member %s from lobby %s",
+                    new_channel.id,
+                    member.id,
+                    channel.id,
+                )
+
+            except discord.HTTPException as e:
                 # いずれかの Discord API 呼び出しが失敗した場合、
                 # チャンネルと DB レコードを両方削除してクリーンアップ
-                with contextlib.suppress(discord.HTTPException):
-                    await new_channel.delete()
-                await delete_voice_session(
-                    session, str(new_channel.id)
+                logger.error(
+                    "Failed to initialize channel %s for member %s: %s",
+                    new_channel.id,
+                    member.id,
+                    e,
                 )
+                try:
+                    await new_channel.delete()
+                except discord.HTTPException as del_e:
+                    logger.warning(
+                        "Failed to cleanup channel %s after error: %s",
+                        new_channel.id,
+                        del_e,
+                    )
+                await delete_voice_session(session, str(new_channel.id))
                 return
 
     # ==========================================================================
@@ -442,21 +475,27 @@ class VoiceCog(commands.Cog):
           3. オーナーが退出した場合は最も長くいるメンバーに引き継ぎ
         """
         async with async_session() as session:
-            voice_session = await get_voice_session(
-                session, str(channel.id)
-            )
+            voice_session = await get_voice_session(session, str(channel.id))
             if not voice_session:
                 return  # 一時 VC ではない (ロビー等) → 何もしない
 
             # --- 全員退出 → チャンネル削除 ---
             if len(channel.members) == 0:
+                logger.info(
+                    "Deleting empty ephemeral VC %s (last member: %s)",
+                    channel.id,
+                    member.id,
+                )
                 # 参加記録をクリーンアップ (キャッシュのみ。DB は CASCADE で自動削除)
                 self._cleanup_channel_cache(channel.id)
-                # チャンネルを削除 (Discord API エラーは無視)
-                # contextlib.suppress: 指定した例外を無視する Python 標準ライブラリ
-                with contextlib.suppress(discord.HTTPException):
-                    await channel.delete(
-                        reason="Ephemeral VC: All members left"
+                # チャンネルを削除
+                try:
+                    await channel.delete(reason="Ephemeral VC: All members left")
+                except discord.HTTPException as e:
+                    logger.warning(
+                        "Failed to delete empty channel %s: %s",
+                        channel.id,
+                        e,
                     )
                 # DB からセッション記録を削除
                 await delete_voice_session(session, str(channel.id))
@@ -464,9 +503,7 @@ class VoiceCog(commands.Cog):
 
             # --- オーナー退出 → 引き継ぎ ---
             if voice_session.owner_id == str(member.id):
-                await self._transfer_ownership(
-                    session, voice_session, member, channel
-                )
+                await self._transfer_ownership(session, voice_session, member, channel)
 
     async def _find_panel_message(
         self, channel: discord.VoiceChannel
@@ -480,18 +517,31 @@ class VoiceCog(commands.Cog):
             見つかったメッセージ。見つからなければ None
         """
         # ピン留めメッセージから探す (通常はここで見つかる)
-        with contextlib.suppress(discord.HTTPException):
+        try:
             pins = await channel.pins()
             for pinned in pins:
                 if pinned.author == self.bot.user and pinned.embeds:
                     return pinned
+        except discord.HTTPException as e:
+            logger.debug(
+                "Failed to fetch pins for channel %s: %s",
+                channel.id,
+                e,
+            )
 
         # フォールバック: 履歴から探す (ピン留め前の古いセッション等)
-        with contextlib.suppress(discord.HTTPException):
+        try:
             async for hist_msg in channel.history(limit=50):
                 if hist_msg.author == self.bot.user and hist_msg.embeds:
                     return hist_msg
+        except discord.HTTPException as e:
+            logger.debug(
+                "Failed to fetch history for channel %s: %s",
+                channel.id,
+                e,
+            )
 
+        logger.warning("Control panel not found for channel %s", channel.id)
         return None
 
     async def _transfer_ownership(
@@ -516,34 +566,49 @@ class VoiceCog(commands.Cog):
             session, voice_session, channel, old_owner.id
         )
         if not new_owner:
+            logger.debug(
+                "No eligible member for ownership transfer in channel %s",
+                channel.id,
+            )
             return  # 人間のメンバーが誰もいない
 
-        # DB のオーナー ID を新オーナーに更新
-        await update_voice_session(
-            session, voice_session, owner_id=str(new_owner.id)
+        logger.info(
+            "Transferring ownership of channel %s from %s to %s",
+            channel.id,
+            old_owner.id,
+            new_owner.id,
         )
+
+        # DB のオーナー ID を新オーナーに更新
+        await update_voice_session(session, voice_session, owner_id=str(new_owner.id))
 
         # テキストチャット権限を移行
         # 旧オーナー: read_message_history=None → ロール設定に戻す (= 読めなくなる)
         # 新オーナー: read_message_history=True → 読めるようにする
-        with contextlib.suppress(discord.HTTPException):
-            await channel.set_permissions(
-                old_owner, read_message_history=None
-            )
-            await channel.set_permissions(
-                new_owner, read_message_history=True
+        try:
+            await channel.set_permissions(old_owner, read_message_history=None)
+            await channel.set_permissions(new_owner, read_message_history=True)
+        except discord.HTTPException as e:
+            logger.warning(
+                "Failed to update permissions for ownership transfer in channel %s: %s",
+                channel.id,
+                e,
             )
 
         # コントロールパネルを再投稿 (旧パネル削除 → 新パネル送信 → ピン留め)
         await repost_panel(channel, self.bot)
 
         # チャンネルに引き継ぎ通知を送信
-        with contextlib.suppress(discord.HTTPException):
+        try:
             await channel.send(
-                f"オーナーが退出したため、"
-                f"{new_owner.mention} に引き継ぎました。"
+                f"オーナーが退出したため、{new_owner.mention} に引き継ぎました。"
             )
-
+        except discord.HTTPException as e:
+            logger.debug(
+                "Failed to send ownership transfer notification in channel %s: %s",
+                channel.id,
+                e,
+            )
 
     # ==========================================================================
     # スラッシュコマンド (/vc グループ)
@@ -575,9 +640,7 @@ class VoiceCog(commands.Cog):
         # --- 重複チェック ---
         # 1サーバーにつきロビーは1つまで
         async with async_session() as session:
-            existing = await get_lobbies_by_guild(
-                session, str(interaction.guild_id)
-            )
+            existing = await get_lobbies_by_guild(session, str(interaction.guild_id))
             if existing:
                 await interaction.response.send_message(
                     "このサーバーには既にロビーが存在します。",
@@ -628,9 +691,7 @@ class VoiceCog(commands.Cog):
             return
 
         async with async_session() as session:
-            voice_session = await get_voice_session(
-                session, str(channel.id)
-            )
+            voice_session = await get_voice_session(session, str(channel.id))
             if not voice_session:
                 await interaction.response.send_message(
                     "一時 VC が見つかりません。", ephemeral=True

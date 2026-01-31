@@ -854,9 +854,7 @@ class TestReminderCheck:
                     new_callable=AsyncMock,
                     return_value=[reminder],
                 ),
-                patch(
-                    "src.cogs.bump.clear_bump_reminder", new_callable=AsyncMock
-                ),
+                patch("src.cogs.bump.clear_bump_reminder", new_callable=AsyncMock),
             ):
                 await cog._reminder_check()  # type: ignore[misc]
 
@@ -1376,9 +1374,7 @@ class TestBumpRoleSelectView:
             await view.reset_button.callback(mock_interaction)
 
         # role_id=None でリセット (guild_id は str に変換される)
-        mock_update.assert_awaited_once_with(
-            mock_session, "12345", "DISBOARD", None
-        )
+        mock_update.assert_awaited_once_with(mock_session, "12345", "DISBOARD", None)
         mock_interaction.response.edit_message.assert_awaited_once()
         call_kwargs = mock_interaction.response.edit_message.call_args[1]
         assert "Server Bumper" in call_kwargs["content"]
@@ -1797,15 +1793,11 @@ class TestBumpSetupCommand:
 
         with (
             patch("src.cogs.bump.async_session", return_value=mock_session),
-            patch(
-                "src.cogs.bump.upsert_bump_config", new_callable=AsyncMock
-            ),
+            patch("src.cogs.bump.upsert_bump_config", new_callable=AsyncMock),
             patch(
                 "src.cogs.bump.upsert_bump_reminder", new_callable=AsyncMock
             ) as mock_upsert_reminder,
-            patch.object(
-                cog, "_find_recent_bump", new_callable=AsyncMock
-            ) as mock_find,
+            patch.object(cog, "_find_recent_bump", new_callable=AsyncMock) as mock_find,
         ):
             mock_find.return_value = ("DISBOARD", bump_time)
             await cog.bump_setup.callback(cog, mock_interaction)
@@ -1856,15 +1848,11 @@ class TestBumpSetupCommand:
 
         with (
             patch("src.cogs.bump.async_session", return_value=mock_session),
-            patch(
-                "src.cogs.bump.upsert_bump_config", new_callable=AsyncMock
-            ),
+            patch("src.cogs.bump.upsert_bump_config", new_callable=AsyncMock),
             patch(
                 "src.cogs.bump.upsert_bump_reminder", new_callable=AsyncMock
             ) as mock_upsert_reminder,
-            patch.object(
-                cog, "_find_recent_bump", new_callable=AsyncMock
-            ) as mock_find,
+            patch.object(cog, "_find_recent_bump", new_callable=AsyncMock) as mock_find,
         ):
             mock_find.return_value = ("DISBOARD", bump_time)
             await cog.bump_setup.callback(cog, mock_interaction)
@@ -1901,15 +1889,11 @@ class TestBumpSetupCommand:
 
         with (
             patch("src.cogs.bump.async_session", return_value=mock_session),
-            patch(
-                "src.cogs.bump.upsert_bump_config", new_callable=AsyncMock
-            ),
+            patch("src.cogs.bump.upsert_bump_config", new_callable=AsyncMock),
             patch(
                 "src.cogs.bump.upsert_bump_reminder", new_callable=AsyncMock
             ) as mock_upsert_reminder,
-            patch.object(
-                cog, "_find_recent_bump", new_callable=AsyncMock
-            ) as mock_find,
+            patch.object(cog, "_find_recent_bump", new_callable=AsyncMock) as mock_find,
         ):
             mock_find.return_value = None  # bump が見つからない
             await cog.bump_setup.callback(cog, mock_interaction)
@@ -1952,9 +1936,7 @@ class TestBumpSetupCommand:
             patch(
                 "src.cogs.bump.upsert_bump_config", new_callable=AsyncMock
             ) as mock_upsert,
-            patch.object(
-                cog, "_find_recent_bump", new_callable=AsyncMock
-            ) as mock_find,
+            patch.object(cog, "_find_recent_bump", new_callable=AsyncMock) as mock_find,
         ):
             await cog.bump_setup.callback(cog, mock_interaction)
 
@@ -1992,9 +1974,7 @@ class TestBumpSetupCommand:
 
         with (
             patch("src.cogs.bump.async_session", return_value=mock_session),
-            patch(
-                "src.cogs.bump.upsert_bump_config", new_callable=AsyncMock
-            ),
+            patch("src.cogs.bump.upsert_bump_config", new_callable=AsyncMock),
         ):
             await cog.bump_setup.callback(cog, mock_interaction)
 
@@ -2038,17 +2018,13 @@ class TestBumpSetupCommand:
 
         with (
             patch("src.cogs.bump.async_session", return_value=mock_session),
-            patch(
-                "src.cogs.bump.upsert_bump_config", new_callable=AsyncMock
-            ),
+            patch("src.cogs.bump.upsert_bump_config", new_callable=AsyncMock),
             patch(
                 "src.cogs.bump.upsert_bump_reminder",
                 new_callable=AsyncMock,
                 return_value=mock_reminder,
             ),
-            patch.object(
-                cog, "_find_recent_bump", new_callable=AsyncMock
-            ) as mock_find,
+            patch.object(cog, "_find_recent_bump", new_callable=AsyncMock) as mock_find,
         ):
             mock_find.return_value = ("DISBOARD", bump_time)
             await cog.bump_setup.callback(cog, mock_interaction)
@@ -2160,9 +2136,7 @@ class TestBumpStatusCommand:
         mock_config.created_at = datetime.now(UTC)
 
         # DISBOARD はカスタムロール, ディス速報はデフォルト
-        mock_disboard_reminder = _make_reminder(
-            service_name="DISBOARD", role_id="999"
-        )
+        mock_disboard_reminder = _make_reminder(service_name="DISBOARD", role_id="999")
         mock_dissoku_reminder = None  # ディス速報はリマインダーなし
 
         mock_session = MagicMock()

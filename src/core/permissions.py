@@ -43,9 +43,9 @@ def build_locked_overwrites(
     owner = guild.get_member(owner_id)
     if owner:
         overwrites[owner] = discord.PermissionOverwrite(
-            connect=True,       # VC に接続できる
-            speak=True,         # 発言できる
-            stream=True,        # 画面共有できる
+            connect=True,  # VC に接続できる
+            speak=True,  # 発言できる
+            stream=True,  # 画面共有できる
             move_members=True,  # 他メンバーを移動できる
             mute_members=True,  # 他メンバーをミュートできる
             deafen_members=True,  # 他メンバーのスピーカーをオフにできる

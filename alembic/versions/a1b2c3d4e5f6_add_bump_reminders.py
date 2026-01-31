@@ -35,4 +35,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("bump_reminders")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "bump_reminders" in inspector.get_table_names():
+        op.drop_table("bump_reminders")

@@ -4,7 +4,7 @@
 
 ## プロジェクト概要
 
-Discord の一時ボイスチャンネル管理 Bot + Bump リマインダー機能。
+Discord の一時ボイスチャンネル管理 Bot + Bump リマインダー + Sticky メッセージ + Web 管理画面。
 
 ### 技術スタック
 
@@ -13,6 +13,8 @@ Discord の一時ボイスチャンネル管理 Bot + Bump リマインダー機
 - **SQLAlchemy 2.x (async)** - ORM
 - **PostgreSQL** - データベース
 - **Alembic** - マイグレーション
+- **FastAPI** - Web 管理画面
+- **pydantic-settings** - 設定管理
 - **pytest + pytest-asyncio** - テスト
 - **Ruff** - リンター
 - **mypy** - 型チェック
@@ -21,36 +23,70 @@ Discord の一時ボイスチャンネル管理 Bot + Bump リマインダー機
 
 ```
 src/
-├── main.py              # エントリーポイント
+├── main.py              # エントリーポイント (SIGTERM ハンドラ含む)
 ├── bot.py               # Bot クラス (on_ready, Cog ローダー)
 ├── config.py            # pydantic-settings による環境変数管理
+├── constants.py         # アプリケーション定数
 ├── cogs/
-│   ├── admin.py         # 管理者用コマンド (将来の拡張用)
+│   ├── admin.py         # 管理者用コマンド (/vc lobby)
 │   ├── voice.py         # VC 自動作成・削除、/vc コマンドグループ
 │   ├── bump.py          # Bump リマインダー
+│   ├── sticky.py        # Sticky メッセージ
 │   └── health.py        # ヘルスチェック (ハートビート)
 ├── core/
 │   ├── permissions.py   # Discord 権限ヘルパー
 │   ├── validators.py    # 入力バリデーション
 │   └── builders.py      # チャンネル作成ビルダー
 ├── database/
-│   ├── engine.py        # SQLAlchemy 非同期エンジン
+│   ├── engine.py        # SQLAlchemy 非同期エンジン (SSL/プール設定)
 │   └── models.py        # DB モデル定義
 ├── services/
 │   └── db_service.py    # DB CRUD 操作 (ビジネスロジック)
-└── ui/
-    └── control_panel.py # コントロールパネル UI (View/Button/Select)
+├── ui/
+│   └── control_panel.py # コントロールパネル UI (View/Button/Select)
+└── web/
+    ├── app.py           # FastAPI Web 管理画面
+    ├── email_service.py # メール送信サービス (SMTP)
+    └── templates.py     # HTML テンプレート
 
 tests/
 ├── conftest.py          # pytest fixtures (DB セッション等)
 ├── cogs/
 │   ├── test_voice.py
-│   └── test_bump.py
-└── ui/
-    └── test_control_panel.py
+│   ├── test_bump.py
+│   ├── test_sticky.py
+│   └── test_health.py
+├── database/
+│   ├── test_engine.py
+│   ├── test_models.py
+│   └── test_integration.py
+├── ui/
+│   └── test_control_panel.py
+└── web/
+    ├── test_app.py
+    └── test_email_service.py
 ```
 
 ## データベースモデル
+
+### AdminUser
+Web 管理画面のログインユーザー。
+
+```python
+class AdminUser(Base):
+    id: Mapped[int]                         # PK
+    email: Mapped[str]                      # unique
+    password_hash: Mapped[str]              # bcrypt ハッシュ
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    password_changed_at: Mapped[datetime | None]
+    reset_token: Mapped[str | None]         # パスワードリセット用
+    reset_token_expires_at: Mapped[datetime | None]
+    pending_email: Mapped[str | None]       # メールアドレス変更待ち
+    email_change_token: Mapped[str | None]
+    email_change_token_expires_at: Mapped[datetime | None]
+    email_verified: Mapped[bool]
+```
 
 ### Lobby
 ロビー VC の設定を保存。
@@ -59,9 +95,10 @@ tests/
 class Lobby(Base):
     id: Mapped[int]                    # PK
     guild_id: Mapped[str]              # Discord サーバー ID
-    channel_id: Mapped[str]            # ロビー VC の ID
+    lobby_channel_id: Mapped[str]      # ロビー VC の ID (unique)
     category_id: Mapped[str | None]    # 作成先カテゴリ ID
-    created_at: Mapped[datetime]
+    default_user_limit: Mapped[int]    # デフォルト人数制限 (0 = 無制限)
+    # relationship: sessions -> VoiceSession[]
 ```
 
 ### VoiceSession
@@ -71,22 +108,26 @@ class Lobby(Base):
 class VoiceSession(Base):
     id: Mapped[int]                    # PK
     lobby_id: Mapped[int]              # FK -> Lobby
-    channel_id: Mapped[str]            # 作成された VC の ID
+    channel_id: Mapped[str]            # 作成された VC の ID (unique)
     owner_id: Mapped[str]              # オーナーの Discord ID
+    name: Mapped[str]                  # チャンネル名
+    user_limit: Mapped[int]            # 人数制限
     is_locked: Mapped[bool]            # ロック状態
     is_hidden: Mapped[bool]            # 非表示状態
     created_at: Mapped[datetime]
+    # relationship: lobby -> Lobby
 ```
 
 ### VoiceSessionMember
-VC 参加者の join 時刻を記録 (参加時間計測用)。
+VC 参加者の join 時刻を記録 (オーナー引き継ぎ用)。
 
 ```python
 class VoiceSessionMember(Base):
     id: Mapped[int]
-    voice_session_id: Mapped[int]      # FK -> VoiceSession
+    voice_session_id: Mapped[int]      # FK -> VoiceSession (CASCADE)
     user_id: Mapped[str]
     joined_at: Mapped[datetime]
+    # unique constraint: (voice_session_id, user_id)
 ```
 
 ### BumpConfig
@@ -94,8 +135,7 @@ Bump 監視の設定。
 
 ```python
 class BumpConfig(Base):
-    id: Mapped[int]
-    guild_id: Mapped[str]              # unique
+    guild_id: Mapped[str]              # PK
     channel_id: Mapped[str]            # 監視対象チャンネル
     created_at: Mapped[datetime]
 ```
@@ -112,8 +152,24 @@ class BumpReminder(Base):
     remind_at: Mapped[datetime | None] # 次回リマインド時刻
     is_enabled: Mapped[bool]           # 通知有効/無効
     role_id: Mapped[str | None]        # カスタム通知ロール ID
-    created_at: Mapped[datetime]
     # unique constraint: (guild_id, service_name)
+```
+
+### StickyMessage
+Sticky メッセージの設定。
+
+```python
+class StickyMessage(Base):
+    channel_id: Mapped[str]            # PK
+    guild_id: Mapped[str]
+    message_id: Mapped[str | None]     # 現在の sticky メッセージ ID
+    message_type: Mapped[str]          # "embed" or "text"
+    title: Mapped[str]
+    description: Mapped[str]
+    color: Mapped[int | None]
+    cooldown_seconds: Mapped[int]      # 再投稿までの最小間隔
+    last_posted_at: Mapped[datetime | None]
+    created_at: Mapped[datetime]
 ```
 
 ## 主要機能の設計
@@ -162,10 +218,105 @@ class BumpReminder(Base):
 - **BumpRoleSelectView**: ロール選択セレクトメニュー + デフォルトに戻すボタン
 - サービスごと (DISBOARD/ディス速報) に独立して設定可能
 
-#### 表示される情報
-- bump 検知時: リマインド時刻 (`<t:timestamp:t>` 形式) + 現在の通知先ロール
-- `/bump setup`: 監視チャンネル + 通知先ロール + 直近の bump 情報
-- `/bump status`: 監視チャンネル + 設定日時 + 各サービスの通知先ロール
+### 3. Sticky メッセージ機能 (`sticky.py`)
+
+#### フロー
+1. `/sticky set` コマンドで設定 (Embed or Text を選択)
+2. モーダルでタイトル・説明文・色・遅延を入力
+3. `StickyMessage` を DB に保存
+4. 初回 sticky メッセージを投稿
+
+#### 再投稿フロー
+1. `on_message` で新規メッセージを監視
+2. 設定されているチャンネルならペンディング処理を開始
+3. デバウンス: 遅延秒数後に再投稿 (連続投稿時は最後の1回のみ実行)
+4. 古い sticky メッセージを削除
+5. 新しい sticky メッセージを投稿
+6. DB の `message_id` と `last_posted_at` を更新
+
+#### デバウンス方式
+```python
+# ペンディングタスクを管理
+_pending_tasks: dict[str, asyncio.Task[None]] = {}
+
+async def _schedule_repost(channel_id: str, delay: float):
+    # 既存タスクがあればキャンセル
+    if channel_id in _pending_tasks:
+        _pending_tasks[channel_id].cancel()
+    # 新しいタスクをスケジュール
+    _pending_tasks[channel_id] = asyncio.create_task(_delayed_repost(...))
+```
+
+### 4. Web 管理画面 (`web/app.py`)
+
+#### 認証フロー
+1. 初回起動時: 環境変数の `ADMIN_EMAIL` / `ADMIN_PASSWORD` で管理者作成
+2. ログイン: メール + パスワードで認証
+3. セッション: 署名付き Cookie (itsdangerous)
+4. パスワードリセット: SMTP 経由でリセットリンクを送信
+
+#### セキュリティ機能
+- **レート制限**: 5分間で5回までのログイン試行
+- **セキュア Cookie**: HTTPS 環境でのみ Cookie 送信 (設定可能)
+- **セッション有効期限**: 24時間
+- **パスワードハッシュ**: bcrypt
+
+#### エンドポイント
+| パス | 説明 |
+|------|------|
+| `/` | ダッシュボード (ログイン必須) |
+| `/login` | ログイン画面 |
+| `/logout` | ログアウト |
+| `/lobbies` | ロビー一覧 |
+| `/bump` | Bump 設定一覧 |
+| `/sticky` | Sticky メッセージ一覧 |
+| `/settings` | 設定画面 (パスワード変更等) |
+| `/forgot-password` | パスワードリセット |
+
+### 5. Graceful シャットダウン (`main.py`)
+
+#### SIGTERM ハンドラ
+```python
+def _handle_sigterm(_signum: int, _frame: FrameType | None) -> None:
+    """Heroku のシャットダウン時に SIGTERM を受信"""
+    logger.info("Received SIGTERM signal, initiating graceful shutdown...")
+    if _bot is not None:
+        asyncio.create_task(_shutdown_bot())
+
+async def _shutdown_bot() -> None:
+    """Bot を安全に停止"""
+    if _bot is not None:
+        await _bot.close()
+```
+
+### 6. データベース接続設定 (`database/engine.py`)
+
+#### SSL 接続 (Heroku 対応)
+```python
+DATABASE_REQUIRE_SSL = os.environ.get("DATABASE_REQUIRE_SSL", "").lower() == "true"
+
+def _get_connect_args() -> dict[str, Any]:
+    if DATABASE_REQUIRE_SSL:
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False  # 自己署名証明書
+        ssl_context.verify_mode = ssl.CERT_NONE
+        return {"ssl": ssl_context}
+    return {}
+```
+
+#### コネクションプール
+```python
+POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
+MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
+
+engine = create_async_engine(
+    settings.async_database_url,
+    pool_size=POOL_SIZE,
+    max_overflow=MAX_OVERFLOW,
+    pool_pre_ping=True,  # 接続前にpingして無効な接続を検出
+    connect_args=_get_connect_args(),
+)
+```
 
 ## 設計原則
 
@@ -207,6 +358,32 @@ with contextlib.suppress(discord.HTTPException):
 - 全ての関数に型ヒントを付与
 - `mypy --strict` でチェック
 - `Mapped[T]` で SQLAlchemy モデルの型を明示
+
+### 6. ドキュメント (docstring)
+Google スタイルの docstring を使用:
+```python
+def function(arg1: str, arg2: int) -> bool:
+    """関数の説明。
+
+    Args:
+        arg1 (str): 引数1の説明。
+        arg2 (int): 引数2の説明。
+
+    Returns:
+        bool: 返り値の説明。
+
+    Raises:
+        ValueError: エラーの説明。
+
+    Examples:
+        使用例::
+
+            result = function("foo", 42)
+
+    See Also:
+        - :func:`related_function`: 関連する関数
+    """
+```
 
 ## テスト方針
 
@@ -271,6 +448,17 @@ description = (
 )
 ```
 
+### 5. 環境変数の URL 変換
+```python
+# Heroku は postgres:// を使用、SQLAlchemy は postgresql+asyncpg:// を要求
+@property
+def async_database_url(self) -> str:
+    url = self.database_url
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
+```
+
 ## よくあるタスク
 
 ### 新しいボタンを追加
@@ -292,19 +480,48 @@ description = (
 4. 関連する `db_service.py` の関数を更新
 5. テストを更新
 
+### 新しい Cog を追加
+1. `src/cogs/` に新しいファイルを作成
+2. `Cog` クラスを定義し、`setup()` 関数をエクスポート
+3. `bot.py` の `setup_hook()` で `load_extension()` を追加
+4. テストを追加
+
+### 新しい Web エンドポイントを追加
+1. `src/web/app.py` にルートを追加
+2. 認証が必要なら `get_current_user()` を Depends に追加
+3. テンプレートが必要なら `src/web/templates.py` に追加
+4. テストを追加
+
 ## CI/CD
 
 ### GitHub Actions
-- Ruff リント
+- Ruff format (フォーマットチェック)
+- Ruff check (リンター)
 - mypy 型チェック
 - pytest + Codecov
 
 ### Heroku デプロイ
-- `main` ブランチへの push で自動デプロイ
+- `main` ブランチへの push でテストが実行される
+- GitHub Actions で手動トリガーによりテスト → デプロイ
 - デプロイ = Bot 再起動
+- SIGTERM で graceful シャットダウン
+
+**ローカルからの手動デプロイは禁止**
+- バージョンの齟齬が発生する可能性がある
+- テストの見逃しが起こる可能性がある
+- 必ず GitHub Actions 経由でデプロイすること
+
+### 必要な環境変数 (Heroku)
+```
+DISCORD_TOKEN=xxx
+DATABASE_URL=(自動設定)
+DATABASE_REQUIRE_SSL=true
+```
 
 ## 関連リンク
 
 - [discord.py ドキュメント](https://discordpy.readthedocs.io/)
 - [SQLAlchemy 2.0 ドキュメント](https://docs.sqlalchemy.org/en/20/)
+- [FastAPI ドキュメント](https://fastapi.tiangolo.com/)
+- [Alembic ドキュメント](https://alembic.sqlalchemy.org/)
 - [DISBOARD](https://disboard.org/)

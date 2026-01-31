@@ -17,9 +17,12 @@ if config.config_file_name is not None:
 # 環境変数 DATABASE_URL があれば alembic.ini の設定を上書き
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
+    # alembic は同期接続を使用するため、asyncpg ドライバを削除
     # Heroku の postgres:// を postgresql:// に変換
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
+    elif database_url.startswith("postgresql+asyncpg://"):
+        database_url = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
     config.set_main_option("sqlalchemy.url", database_url)
 else:
     # 環境変数がなければ settings からデフォルト URL を使用

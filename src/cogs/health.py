@@ -75,7 +75,7 @@ class HealthCog(commands.Cog):
         uptime_sec = int(time.monotonic() - self._start_time)
         # divmod: 割り算の商と余りを同時に取得する Python 組み込み関数
         hours, remainder = divmod(uptime_sec, 3600)  # 3600秒 = 1時間
-        minutes, seconds = divmod(remainder, 60)     # 60秒 = 1分
+        minutes, seconds = divmod(remainder, 60)  # 60秒 = 1分
         uptime_str = f"{hours}h {minutes}m {seconds}s"
 
         # --- Bot の状態を取得 ---
@@ -86,9 +86,9 @@ class HealthCog(commands.Cog):
         # --- ステータスの判定 ---
         # レイテンシに基づいて健全性を判定する
         if latency_ms < 200:
-            status = "Healthy"    # 正常 (200ms 未満)
+            status = "Healthy"  # 正常 (200ms 未満)
         elif latency_ms < 500:
-            status = "Degraded"   # 低下 (200〜500ms)
+            status = "Degraded"  # 低下 (200〜500ms)
         else:
             status = "Unhealthy"  # 異常 (500ms 以上)
 
@@ -96,21 +96,42 @@ class HealthCog(commands.Cog):
         # Heroku logs や Datadog でも確認できるようにログに出力
         logger.info(
             "[Heartbeat] %s | uptime=%s latency=%dms guilds=%d",
-            status, uptime_str, latency_ms, guild_count,
+            status,
+            uptime_str,
+            latency_ms,
+            guild_count,
         )
 
         # --- Discord チャンネルに Embed を送信 ---
         # health_channel_id が 0 (未設定) の場合はスキップ
         if settings.health_channel_id:
             channel = self.bot.get_channel(settings.health_channel_id)
-            if channel is not None and isinstance(channel, discord.TextChannel):
+            if channel is None:
+                logger.warning(
+                    "Health channel %d not found in cache",
+                    settings.health_channel_id,
+                )
+            elif not isinstance(channel, discord.TextChannel):
+                logger.warning(
+                    "Health channel %d is not a TextChannel (type=%s)",
+                    settings.health_channel_id,
+                    type(channel).__name__,
+                )
+            else:
                 embed = self._build_embed(
                     status=status,
                     uptime_str=uptime_str,
                     latency_ms=latency_ms,
                     guild_count=guild_count,
                 )
-                await channel.send(embed=embed)
+                try:
+                    await channel.send(embed=embed)
+                except discord.HTTPException as e:
+                    logger.error(
+                        "Failed to send heartbeat to channel %d: %s",
+                        settings.health_channel_id,
+                        e,
+                    )
 
     @_heartbeat.before_loop
     async def _before_heartbeat(self) -> None:
@@ -126,9 +147,30 @@ class HealthCog(commands.Cog):
         # --- デプロイ (起動) 通知 ---
         if settings.health_channel_id:
             channel = self.bot.get_channel(settings.health_channel_id)
-            if isinstance(channel, discord.TextChannel):
+            if channel is None:
+                logger.warning(
+                    "Health channel %d not found for deploy notification",
+                    settings.health_channel_id,
+                )
+            elif isinstance(channel, discord.TextChannel):
                 embed = self._build_deploy_embed()
-                await channel.send(embed=embed)
+                try:
+                    await channel.send(embed=embed)
+                    logger.info(
+                        "Deploy notification sent to channel %d",
+                        settings.health_channel_id,
+                    )
+                except discord.HTTPException as e:
+                    logger.error(
+                        "Failed to send deploy notification to channel %d: %s",
+                        settings.health_channel_id,
+                        e,
+                    )
+            else:
+                logger.warning(
+                    "Health channel %d is not a TextChannel for deploy notification",
+                    settings.health_channel_id,
+                )
 
     # ------------------------------------------------------------------
     # Embed builder

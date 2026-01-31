@@ -34,9 +34,7 @@ def _make_member(user_id: int, *, bot: bool = False) -> MagicMock:
     return member
 
 
-def _make_channel(
-    channel_id: int, members: list[MagicMock] | None = None
-) -> MagicMock:
+def _make_channel(channel_id: int, members: list[MagicMock] | None = None) -> MagicMock:
     """Create a mock discord.VoiceChannel."""
     channel = MagicMock(spec=discord.VoiceChannel)
     channel.id = channel_id
@@ -71,9 +69,7 @@ def _mock_async_session() -> tuple[MagicMock, AsyncMock]:
     """
     mock_session = AsyncMock()
     mock_factory = MagicMock()
-    mock_factory.return_value.__aenter__ = AsyncMock(
-        return_value=mock_session
-    )
+    mock_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_factory.return_value.__aexit__ = AsyncMock(return_value=False)
     return mock_factory, mock_session
 
@@ -281,7 +277,7 @@ class TestGetLongestMember:
         """キャッシュで同じ join_time の場合、member.id が小さい方が選ばれる。"""
         cog = _make_cog()
         m1 = _make_member(100)  # 大きい ID
-        m2 = _make_member(50)   # 小さい ID
+        m2 = _make_member(50)  # 小さい ID
         channel = _make_channel(100, [m1, m2])
         channel.guild = MagicMock()
         channel.guild.get_member = lambda uid: m1 if uid == 100 else m2
@@ -313,14 +309,16 @@ class TestOnGuildChannelDelete:
         channel = _make_channel(100)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch(
-            "src.cogs.voice.delete_voice_session", new_callable=AsyncMock
-        ) as mock_delete, patch(
-            "src.cogs.voice.async_session", mock_factory
-        ), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "src.cogs.voice.delete_voice_session", new_callable=AsyncMock
+            ) as mock_delete,
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await cog.on_guild_channel_delete(channel)
 
@@ -346,14 +344,16 @@ class TestOnGuildChannelDelete:
         channel = _make_channel(300)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch(
-            "src.cogs.voice.delete_voice_session", new_callable=AsyncMock
-        ) as mock_delete, patch(
-            "src.cogs.voice.async_session", mock_factory
-        ), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "src.cogs.voice.delete_voice_session", new_callable=AsyncMock
+            ) as mock_delete,
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             # Should not raise even if no session exists
             await cog.on_guild_channel_delete(channel)
@@ -368,18 +368,19 @@ class TestOnGuildChannelDelete:
         lobby.id = 42
 
         mock_factory, mock_session = _mock_async_session()
-        with patch(
-            "src.cogs.voice.delete_voice_session", new_callable=AsyncMock
-        ), patch(
-            "src.cogs.voice.async_session", mock_factory
-        ), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=lobby,
-        ), patch(
-            "src.cogs.voice.delete_lobby",
-            new_callable=AsyncMock,
-        ) as mock_delete_lobby:
+        with (
+            patch("src.cogs.voice.delete_voice_session", new_callable=AsyncMock),
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.delete_lobby",
+                new_callable=AsyncMock,
+            ) as mock_delete_lobby,
+        ):
             await cog.on_guild_channel_delete(channel)
 
             mock_delete_lobby.assert_awaited_once_with(mock_session, 42)
@@ -390,18 +391,19 @@ class TestOnGuildChannelDelete:
         channel = _make_channel(100)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch(
-            "src.cogs.voice.delete_voice_session", new_callable=AsyncMock
-        ), patch(
-            "src.cogs.voice.async_session", mock_factory
-        ), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=None,
-        ), patch(
-            "src.cogs.voice.delete_lobby",
-            new_callable=AsyncMock,
-        ) as mock_delete_lobby:
+        with (
+            patch("src.cogs.voice.delete_voice_session", new_callable=AsyncMock),
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "src.cogs.voice.delete_lobby",
+                new_callable=AsyncMock,
+            ) as mock_delete_lobby,
+        ):
             await cog.on_guild_channel_delete(channel)
 
             mock_delete_lobby.assert_not_awaited()
@@ -422,14 +424,18 @@ class TestHandleLobbyJoin:
         channel = _make_channel(100)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=None,
-        ), patch(
-            "src.cogs.voice.create_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_create:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_create,
+        ):
             await cog._handle_lobby_join(member, channel)
             mock_create.assert_not_awaited()
 
@@ -458,23 +464,30 @@ class TestHandleLobbyJoin:
         voice_session = _make_voice_session(channel_id="200", owner_id="1")
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=lobby,
-        ), patch(
-            "src.cogs.voice.create_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ) as mock_create, patch(
-            "src.cogs.voice.add_voice_session_member",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.create_control_panel_embed",
-            return_value=MagicMock(),
-        ), patch(
-            "src.cogs.voice.ControlPanelView",
-            return_value=MagicMock(),
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ) as mock_create,
+            patch(
+                "src.cogs.voice.add_voice_session_member",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.create_control_panel_embed",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "src.cogs.voice.ControlPanelView",
+                return_value=MagicMock(),
+            ),
         ):
             await cog._handle_lobby_join(member, channel)
 
@@ -501,9 +514,7 @@ class TestHandleLobbyJoin:
 
         new_channel = _make_channel(200)
         new_channel.set_permissions = AsyncMock(
-            side_effect=discord.HTTPException(
-                MagicMock(status=500), "error"
-            )
+            side_effect=discord.HTTPException(MagicMock(status=500), "error")
         )
         new_channel.delete = AsyncMock()
 
@@ -516,21 +527,27 @@ class TestHandleLobbyJoin:
         voice_session = _make_voice_session(channel_id="200")
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=lobby,
-        ), patch(
-            "src.cogs.voice.create_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.add_voice_session_member",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.delete_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_delete:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.add_voice_session_member",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.delete_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_delete,
+        ):
             await cog._handle_lobby_join(member, channel)
 
             # クリーンアップ: チャンネル削除 + DB レコード削除
@@ -553,14 +570,18 @@ class TestHandleChannelLeave:
         channel = _make_channel(100)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
-        ), patch(
-            "src.cogs.voice.delete_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_delete:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "src.cogs.voice.delete_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_delete,
+        ):
             await cog._handle_channel_leave(member, channel)
             mock_delete.assert_not_awaited()
 
@@ -575,14 +596,18 @@ class TestHandleChannelLeave:
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.delete_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_delete:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.delete_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_delete,
+        ):
             await cog._handle_channel_leave(member, channel)
 
             channel.delete.assert_awaited_once()
@@ -606,20 +631,26 @@ class TestHandleChannelLeave:
         mock_db_member2.user_id = "2"
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update, patch(
-            "src.cogs.voice.repost_panel",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.get_voice_session_members_ordered",
-            new_callable=AsyncMock,
-            return_value=[mock_db_member2],
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+            patch(
+                "src.cogs.voice.repost_panel",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.get_voice_session_members_ordered",
+                new_callable=AsyncMock,
+                return_value=[mock_db_member2],
+            ),
         ):
             await cog._handle_channel_leave(owner, channel)
 
@@ -638,14 +669,18 @@ class TestHandleChannelLeave:
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+        ):
             await cog._handle_channel_leave(leaver, channel)
             mock_update.assert_not_awaited()
 
@@ -679,16 +714,20 @@ class TestTransferOwnership:
         mock_db_member3.user_id = "3"
 
         mock_session = AsyncMock()
-        with patch(
-            "src.cogs.voice.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update, patch(
-            "src.cogs.voice.repost_panel",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.get_voice_session_members_ordered",
-            new_callable=AsyncMock,
-            return_value=[mock_db_member2, mock_db_member3],
+        with (
+            patch(
+                "src.cogs.voice.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+            patch(
+                "src.cogs.voice.repost_panel",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.get_voice_session_members_ordered",
+                new_callable=AsyncMock,
+                return_value=[mock_db_member2, mock_db_member3],
+            ),
         ):
             await cog._transfer_ownership(
                 mock_session, voice_session, old_owner, channel
@@ -714,16 +753,20 @@ class TestTransferOwnership:
         mock_db_member2.user_id = "2"
 
         mock_session = AsyncMock()
-        with patch(
-            "src.cogs.voice.update_voice_session",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.repost_panel",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.get_voice_session_members_ordered",
-            new_callable=AsyncMock,
-            return_value=[mock_db_member2],
+        with (
+            patch(
+                "src.cogs.voice.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.repost_panel",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.get_voice_session_members_ordered",
+                new_callable=AsyncMock,
+                return_value=[mock_db_member2],
+            ),
         ):
             await cog._transfer_ownership(
                 mock_session, voice_session, old_owner, channel
@@ -754,16 +797,20 @@ class TestTransferOwnership:
         mock_db_member2.user_id = "2"
 
         mock_session = AsyncMock()
-        with patch(
-            "src.cogs.voice.update_voice_session",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.repost_panel",
-            new_callable=AsyncMock,
-        ) as mock_repost, patch(
-            "src.cogs.voice.get_voice_session_members_ordered",
-            new_callable=AsyncMock,
-            return_value=[mock_db_member2],
+        with (
+            patch(
+                "src.cogs.voice.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.repost_panel",
+                new_callable=AsyncMock,
+            ) as mock_repost,
+            patch(
+                "src.cogs.voice.get_voice_session_members_ordered",
+                new_callable=AsyncMock,
+                return_value=[mock_db_member2],
+            ),
         ):
             await cog._transfer_ownership(
                 mock_session, voice_session, old_owner, channel
@@ -788,16 +835,20 @@ class TestTransferOwnership:
         mock_db_member2.user_id = "2"
 
         mock_session = AsyncMock()
-        with patch(
-            "src.cogs.voice.update_voice_session",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.repost_panel",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.get_voice_session_members_ordered",
-            new_callable=AsyncMock,
-            return_value=[mock_db_member2],
+        with (
+            patch(
+                "src.cogs.voice.update_voice_session",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.repost_panel",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.get_voice_session_members_ordered",
+                new_callable=AsyncMock,
+                return_value=[mock_db_member2],
+            ),
         ):
             await cog._transfer_ownership(
                 mock_session, voice_session, old_owner, channel
@@ -819,13 +870,16 @@ class TestTransferOwnership:
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
 
         mock_session = AsyncMock()
-        with patch(
-            "src.cogs.voice.update_voice_session",
-            new_callable=AsyncMock,
-        ) as mock_update, patch(
-            "src.cogs.voice.get_voice_session_members_ordered",
-            new_callable=AsyncMock,
-            return_value=[],  # DB に記録なし
+        with (
+            patch(
+                "src.cogs.voice.update_voice_session",
+                new_callable=AsyncMock,
+            ) as mock_update,
+            patch(
+                "src.cogs.voice.get_voice_session_members_ordered",
+                new_callable=AsyncMock,
+                return_value=[],  # DB に記録なし
+            ),
         ):
             await cog._transfer_ownership(
                 mock_session, voice_session, old_owner, channel
@@ -959,9 +1013,7 @@ class TestOnVoiceStateUpdate:
 
         await cog.on_voice_state_update(member, before, after)
 
-        cog._handle_channel_leave.assert_awaited_once_with(
-            member, before.channel
-        )
+        cog._handle_channel_leave.assert_awaited_once_with(member, before.channel)
         # 参加記録が削除される
         assert 1 not in cog._join_times.get(100, {})
 
@@ -1032,18 +1084,18 @@ class TestVcLobbyCommand:
         lobby_channel = MagicMock(spec=discord.VoiceChannel)
         lobby_channel.id = 500
         lobby_channel.name = "参加して作成"
-        interaction.guild.create_voice_channel = AsyncMock(
-            return_value=lobby_channel
-        )
+        interaction.guild.create_voice_channel = AsyncMock(return_value=lobby_channel)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobbies_by_guild",
-            new_callable=AsyncMock,
-            return_value=[],
-        ), patch(
-            "src.cogs.voice.create_lobby", new_callable=AsyncMock
-        ) as mock_create:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobbies_by_guild",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("src.cogs.voice.create_lobby", new_callable=AsyncMock) as mock_create,
+        ):
             await cog.vc_lobby.callback(cog, interaction)
 
             # VC が作成される
@@ -1087,10 +1139,13 @@ class TestVcLobbyCommand:
         )
 
         mock_factory, _mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobbies_by_guild",
-            new_callable=AsyncMock,
-            return_value=[],
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobbies_by_guild",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             await cog.vc_lobby.callback(cog, interaction)
 
@@ -1108,13 +1163,15 @@ class TestVcLobbyCommand:
         existing_lobby.id = 1
 
         mock_factory, _mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobbies_by_guild",
-            new_callable=AsyncMock,
-            return_value=[existing_lobby],
-        ), patch(
-            "src.cogs.voice.create_lobby", new_callable=AsyncMock
-        ) as mock_create:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobbies_by_guild",
+                new_callable=AsyncMock,
+                return_value=[existing_lobby],
+            ),
+            patch("src.cogs.voice.create_lobby", new_callable=AsyncMock) as mock_create,
+        ):
             await cog.vc_lobby.callback(cog, interaction)
 
             # VC は作成されない
@@ -1132,19 +1189,19 @@ class TestVcLobbyCommand:
         cog = _make_cog()
         interaction = _make_interaction(1)
         interaction.guild.create_voice_channel = AsyncMock(
-            side_effect=discord.HTTPException(
-                MagicMock(status=500), "Internal Error"
-            )
+            side_effect=discord.HTTPException(MagicMock(status=500), "Internal Error")
         )
 
         mock_factory, _mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobbies_by_guild",
-            new_callable=AsyncMock,
-            return_value=[],
-        ), patch(
-            "src.cogs.voice.create_lobby", new_callable=AsyncMock
-        ) as mock_create:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobbies_by_guild",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("src.cogs.voice.create_lobby", new_callable=AsyncMock) as mock_create,
+        ):
             await cog.vc_lobby.callback(cog, interaction)
             mock_create.assert_not_awaited()
 
@@ -1156,17 +1213,17 @@ class TestVcLobbyCommand:
         lobby_channel = MagicMock(spec=discord.VoiceChannel)
         lobby_channel.id = 500
         lobby_channel.name = "参加して作成"
-        interaction.guild.create_voice_channel = AsyncMock(
-            return_value=lobby_channel
-        )
+        interaction.guild.create_voice_channel = AsyncMock(return_value=lobby_channel)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobbies_by_guild",
-            new_callable=AsyncMock,
-            return_value=[],
-        ), patch(
-            "src.cogs.voice.create_lobby", new_callable=AsyncMock
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobbies_by_guild",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("src.cogs.voice.create_lobby", new_callable=AsyncMock),
         ):
             await cog.vc_lobby.callback(cog, interaction)
 
@@ -1181,18 +1238,18 @@ class TestVcLobbyCommand:
         lobby_channel = MagicMock(spec=discord.VoiceChannel)
         lobby_channel.id = 500
         lobby_channel.name = "参加して作成"
-        interaction.guild.create_voice_channel = AsyncMock(
-            return_value=lobby_channel
-        )
+        interaction.guild.create_voice_channel = AsyncMock(return_value=lobby_channel)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobbies_by_guild",
-            new_callable=AsyncMock,
-            return_value=[],
-        ), patch(
-            "src.cogs.voice.create_lobby", new_callable=AsyncMock
-        ) as mock_create:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobbies_by_guild",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("src.cogs.voice.create_lobby", new_callable=AsyncMock) as mock_create,
+        ):
             await cog.vc_lobby.callback(cog, interaction)
 
             mock_create.assert_awaited_once()
@@ -1206,17 +1263,17 @@ class TestVcLobbyCommand:
         lobby_channel = MagicMock(spec=discord.VoiceChannel)
         lobby_channel.id = 500
         lobby_channel.name = "参加して作成"
-        interaction.guild.create_voice_channel = AsyncMock(
-            return_value=lobby_channel
-        )
+        interaction.guild.create_voice_channel = AsyncMock(return_value=lobby_channel)
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobbies_by_guild",
-            new_callable=AsyncMock,
-            return_value=[],
-        ), patch(
-            "src.cogs.voice.create_lobby", new_callable=AsyncMock
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobbies_by_guild",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("src.cogs.voice.create_lobby", new_callable=AsyncMock),
         ):
             await cog.vc_lobby.callback(cog, interaction)
 
@@ -1235,10 +1292,13 @@ class TestVcLobbyCommand:
         )
 
         mock_factory, _mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobbies_by_guild",
-            new_callable=AsyncMock,
-            return_value=[],
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobbies_by_guild",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             await cog.vc_lobby.callback(cog, interaction)
 
@@ -1263,14 +1323,18 @@ class TestVcPanelCommand:
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
 
         mock_factory, mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.repost_panel",
-            new_callable=AsyncMock,
-        ) as mock_repost:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.repost_panel",
+                new_callable=AsyncMock,
+            ) as mock_repost,
+        ):
             await cog.vc_panel.callback(cog, interaction)
 
             # repost_panel が呼ばれる
@@ -1289,14 +1353,18 @@ class TestVcPanelCommand:
         voice_session = _make_voice_session(channel_id="100", owner_id="1")
 
         mock_factory, _mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.repost_panel",
-            new_callable=AsyncMock,
-        ) as mock_repost:
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.repost_panel",
+                new_callable=AsyncMock,
+            ) as mock_repost,
+        ):
             await cog.vc_panel.callback(cog, interaction)
 
             mock_repost.assert_awaited_once_with(channel, cog.bot)
@@ -1325,10 +1393,13 @@ class TestVcPanelCommand:
         interaction = _make_interaction(1, channel)
 
         mock_factory, _mock_session = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await cog.vc_panel.callback(cog, interaction)
 
@@ -1350,9 +1421,7 @@ class TestCogAppCommandError:
         cog = _make_cog()
         interaction = _make_interaction(1)
 
-        error = app_commands.CommandOnCooldown(
-            app_commands.Cooldown(1, 30), 15.0
-        )
+        error = app_commands.CommandOnCooldown(app_commands.Cooldown(1, 30), 15.0)
         await cog.cog_app_command_error(interaction, error)
 
         interaction.response.send_message.assert_awaited_once()
@@ -1411,23 +1480,30 @@ class TestHandleLobbyJoinCategory:
         voice_session = _make_voice_session(channel_id="200", owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=lobby,
-        ), patch(
-            "src.cogs.voice.create_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.add_voice_session_member",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.create_control_panel_embed",
-            return_value=MagicMock(),
-        ), patch(
-            "src.cogs.voice.ControlPanelView",
-            return_value=MagicMock(),
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.add_voice_session_member",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.create_control_panel_embed",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "src.cogs.voice.ControlPanelView",
+                return_value=MagicMock(),
+            ),
         ):
             await cog._handle_lobby_join(member, channel)
 
@@ -1456,32 +1532,37 @@ class TestHandleLobbyJoinCategory:
         guild.create_voice_channel = AsyncMock(return_value=new_channel)
         guild.default_role = MagicMock()
         # TextChannel を返す (CategoryChannel ではない)
-        guild.get_channel = MagicMock(
-            return_value=MagicMock(spec=discord.TextChannel)
-        )
+        guild.get_channel = MagicMock(return_value=MagicMock(spec=discord.TextChannel))
         member.guild = guild
         member.move_to = AsyncMock()
 
         voice_session = _make_voice_session(channel_id="200", owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=lobby,
-        ), patch(
-            "src.cogs.voice.create_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.add_voice_session_member",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.create_control_panel_embed",
-            return_value=MagicMock(),
-        ), patch(
-            "src.cogs.voice.ControlPanelView",
-            return_value=MagicMock(),
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.add_voice_session_member",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.create_control_panel_embed",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "src.cogs.voice.ControlPanelView",
+                return_value=MagicMock(),
+            ),
         ):
             await cog._handle_lobby_join(member, channel)
 
@@ -1509,15 +1590,20 @@ class TestHandleLobbyJoinCategory:
         member.guild = guild
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=lobby,
-        ), patch(
-            "src.cogs.voice.create_voice_session",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("DB error"),
-        ), contextlib.suppress(RuntimeError):
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("DB error"),
+            ),
+            contextlib.suppress(RuntimeError),
+        ):
             await cog._handle_lobby_join(member, channel)
 
         new_channel.delete.assert_awaited_once()
@@ -1625,10 +1711,13 @@ class TestEnforceChannelRestrictions:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -1647,10 +1736,13 @@ class TestEnforceChannelRestrictions:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -1677,17 +1769,20 @@ class TestEnforceChannelRestrictions:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
         assert result is True
         member.move_to.assert_awaited_once_with(None)
         channel.send.assert_awaited_once()  # チャンネルに通知
-        member.send.assert_awaited_once()   # DM で通知
+        member.send.assert_awaited_once()  # DM で通知
 
     async def test_allows_permitted_user_on_locked_channel(self) -> None:
         """ロックされた VC でも connect=True が設定されていれば許可される。"""
@@ -1706,10 +1801,13 @@ class TestEnforceChannelRestrictions:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -1737,17 +1835,20 @@ class TestEnforceChannelRestrictions:
         voice_session.user_limit = 2
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
         assert result is True
         member.move_to.assert_awaited_once_with(None)
         channel.send.assert_awaited_once()  # チャンネルに通知
-        member.send.assert_awaited_once()   # DM で通知
+        member.send.assert_awaited_once()  # DM で通知
 
     async def test_allows_permitted_user_exceeding_limit(self) -> None:
         """人数制限を超えていても connect=True が設定されていれば許可される。"""
@@ -1767,10 +1868,13 @@ class TestEnforceChannelRestrictions:
         voice_session.user_limit = 2
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -1785,10 +1889,13 @@ class TestEnforceChannelRestrictions:
         channel = _make_channel(100)
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -1801,9 +1908,9 @@ class TestEnforceChannelRestrictions:
         member.guild_permissions = MagicMock()
         member.guild_permissions.administrator = False
         member.move_to = AsyncMock()
-        member.send = AsyncMock(side_effect=discord.Forbidden(
-            MagicMock(status=403), "Cannot send DM"
-        ))
+        member.send = AsyncMock(
+            side_effect=discord.Forbidden(MagicMock(status=403), "Cannot send DM")
+        )
         channel = _make_channel(100)
         channel.name = "Test Channel"
         channel.send = AsyncMock()
@@ -1816,10 +1923,13 @@ class TestEnforceChannelRestrictions:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -1838,9 +1948,9 @@ class TestEnforceChannelRestrictions:
         member.send = AsyncMock()
         channel = _make_channel(100)
         channel.name = "Test Channel"
-        channel.send = AsyncMock(side_effect=discord.HTTPException(
-            MagicMock(status=500), "Server error"
-        ))
+        channel.send = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(status=500), "Server error")
+        )
         overwrites = MagicMock()
         overwrites.connect = None
         channel.overwrites_for = MagicMock(return_value=overwrites)
@@ -1850,10 +1960,13 @@ class TestEnforceChannelRestrictions:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -1896,14 +2009,18 @@ class TestVoiceStateUpdateWithRestrictions:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=None,
-        ), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             await cog.on_voice_state_update(member, before, after)
 
@@ -2011,23 +2128,30 @@ class TestVoiceCogWithFaker:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=lobby,
-        ), patch(
-            "src.cogs.voice.create_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ), patch(
-            "src.cogs.voice.add_voice_session_member",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.create_control_panel_embed",
-            return_value=MagicMock(),
-        ), patch(
-            "src.cogs.voice.ControlPanelView",
-            return_value=MagicMock(),
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.add_voice_session_member",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.create_control_panel_embed",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "src.cogs.voice.ControlPanelView",
+                return_value=MagicMock(),
+            ),
         ):
             await cog._handle_lobby_join(member, channel)
 
@@ -2040,11 +2164,11 @@ class TestVoiceCogWithParametrize:
     @pytest.mark.parametrize(
         "user_limit,member_count,should_kick",
         [
-            (0, 5, False),   # 制限なしなら何人でもOK
-            (5, 3, False),   # 制限内ならOK
-            (5, 5, False),   # ちょうど制限と同じならOK
-            (5, 6, True),    # 制限超過でキック
-            (2, 10, True),   # 大幅超過でキック
+            (0, 5, False),  # 制限なしなら何人でもOK
+            (5, 3, False),  # 制限内ならOK
+            (5, 5, False),  # ちょうど制限と同じならOK
+            (5, 6, True),  # 制限超過でキック
+            (2, 10, True),  # 大幅超過でキック
         ],
     )
     async def test_user_limit_enforcement(
@@ -2071,10 +2195,13 @@ class TestVoiceCogWithParametrize:
         voice_session.user_limit = user_limit
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(new_member, channel)
 
@@ -2083,11 +2210,11 @@ class TestVoiceCogWithParametrize:
     @pytest.mark.parametrize(
         "is_locked,has_connect_permission,should_kick",
         [
-            (False, None, False),   # ロックなし
-            (False, True, False),   # ロックなし、権限あり
-            (True, True, False),    # ロックあり、権限あり → OK
-            (True, None, True),     # ロックあり、権限なし → キック
-            (True, False, True),    # ロックあり、明示的拒否 → キック
+            (False, None, False),  # ロックなし
+            (False, True, False),  # ロックなし、権限あり
+            (True, True, False),  # ロックあり、権限あり → OK
+            (True, None, True),  # ロックあり、権限なし → キック
+            (True, False, True),  # ロックあり、明示的拒否 → キック
         ],
     )
     async def test_lock_enforcement(
@@ -2113,10 +2240,13 @@ class TestVoiceCogWithParametrize:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -2125,10 +2255,10 @@ class TestVoiceCogWithParametrize:
     @pytest.mark.parametrize(
         "is_admin,is_owner,is_bot,expected_bypass",
         [
-            (True, False, False, True),   # 管理者はバイパス
-            (False, True, False, True),   # オーナーはバイパス
-            (False, False, True, True),   # Bot はバイパス
-            (False, False, False, False), # 一般ユーザーはバイパスしない
+            (True, False, False, True),  # 管理者はバイパス
+            (False, True, False, True),  # オーナーはバイパス
+            (False, False, True, True),  # Bot はバイパス
+            (False, False, False, False),  # 一般ユーザーはバイパスしない
         ],
     )
     async def test_restriction_bypass(
@@ -2156,10 +2286,13 @@ class TestVoiceCogWithParametrize:
         )
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
         ):
             result = await cog._enforce_channel_restrictions(member, channel)
 
@@ -2195,23 +2328,30 @@ class TestVoiceCogWithParametrize:
         voice_session = _make_voice_session(channel_id="200", owner_id="1")
 
         mock_factory, _ = _mock_async_session()
-        with patch("src.cogs.voice.async_session", mock_factory), patch(
-            "src.cogs.voice.get_lobby_by_channel_id",
-            new_callable=AsyncMock,
-            return_value=lobby,
-        ), patch(
-            "src.cogs.voice.create_voice_session",
-            new_callable=AsyncMock,
-            return_value=voice_session,
-        ) as mock_create, patch(
-            "src.cogs.voice.add_voice_session_member",
-            new_callable=AsyncMock,
-        ), patch(
-            "src.cogs.voice.create_control_panel_embed",
-            return_value=MagicMock(),
-        ), patch(
-            "src.cogs.voice.ControlPanelView",
-            return_value=MagicMock(),
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ) as mock_create,
+            patch(
+                "src.cogs.voice.add_voice_session_member",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.create_control_panel_embed",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "src.cogs.voice.ControlPanelView",
+                return_value=MagicMock(),
+            ),
         ):
             await cog._handle_lobby_join(member, channel)
 

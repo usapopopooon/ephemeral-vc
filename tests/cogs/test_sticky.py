@@ -380,9 +380,7 @@ class TestDelayedRepost:
         channel = MagicMock()
         channel.send = AsyncMock()
 
-        with patch(
-            "asyncio.sleep", side_effect=asyncio.CancelledError
-        ):
+        with patch("asyncio.sleep", side_effect=asyncio.CancelledError):
             await cog._delayed_repost(channel, "456", 5)
 
         channel.send.assert_not_called()

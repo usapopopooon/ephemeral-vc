@@ -128,9 +128,20 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("sticky_messages")
-    op.drop_table("bump_configs")
-    op.drop_table("bump_reminders")
-    op.drop_table("voice_session_members")
-    op.drop_table("voice_sessions")
-    op.drop_table("lobbies")
+    # テーブルが存在する場合のみ削除 (増分マイグレーションとの重複を安全に処理)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    tables = inspector.get_table_names()
+
+    if "sticky_messages" in tables:
+        op.drop_table("sticky_messages")
+    if "bump_configs" in tables:
+        op.drop_table("bump_configs")
+    if "bump_reminders" in tables:
+        op.drop_table("bump_reminders")
+    if "voice_session_members" in tables:
+        op.drop_table("voice_session_members")
+    if "voice_sessions" in tables:
+        op.drop_table("voice_sessions")
+    if "lobbies" in tables:
+        op.drop_table("lobbies")

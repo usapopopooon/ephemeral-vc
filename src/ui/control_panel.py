@@ -17,7 +17,7 @@ discord.py の UI コンポーネント:
   - ephemeral=True: 操作者にだけ見えるメッセージ
 """
 
-import contextlib
+import logging
 from typing import Any
 
 import discord
@@ -28,6 +28,8 @@ from src.core.validators import validate_channel_name, validate_user_limit
 from src.database.engine import async_session
 from src.database.models import VoiceSession
 from src.services.db_service import get_voice_session, update_voice_session
+
+logger = logging.getLogger(__name__)
 
 # パネルメッセージの Embed タイトル (検索用定数)
 _PANEL_TITLE = "ボイスチャンネル設定"
@@ -44,7 +46,7 @@ async def _find_panel_message(
     bot_user = channel.guild.me
 
     # ピン留めメッセージから探す
-    with contextlib.suppress(discord.HTTPException):
+    try:
         pins = await channel.pins()
         for msg in pins:
             if (
@@ -53,9 +55,11 @@ async def _find_panel_message(
                 and msg.embeds[0].title == _PANEL_TITLE
             ):
                 return msg
+    except discord.HTTPException as e:
+        logger.debug("Failed to fetch pins for channel %s: %s", channel.id, e)
 
     # フォールバック: 履歴から探す (ピン留めされていないパネル)
-    with contextlib.suppress(discord.HTTPException):
+    try:
         async for hist_msg in channel.history(limit=50):
             if (
                 hist_msg.author == bot_user
@@ -63,7 +67,10 @@ async def _find_panel_message(
                 and hist_msg.embeds[0].title == _PANEL_TITLE
             ):
                 return hist_msg
+    except discord.HTTPException as e:
+        logger.debug("Failed to fetch history for channel %s: %s", channel.id, e)
 
+    logger.debug("Control panel not found for channel %s", channel.id)
     return None
 
 
@@ -102,16 +109,18 @@ async def refresh_panel_embed(
 ) -> None:
     """パネルメッセージの Embed を最新の DB 状態で更新する。"""
     async with async_session() as db_session:
-        voice_session = await get_voice_session(
-            db_session, str(channel.id)
-        )
+        voice_session = await get_voice_session(db_session, str(channel.id))
         if not voice_session:
+            logger.debug("No voice session found for channel %s", channel.id)
             return
 
-        owner = channel.guild.get_member(
-            int(voice_session.owner_id)
-        )
+        owner = channel.guild.get_member(int(voice_session.owner_id))
         if not owner:
+            logger.warning(
+                "Owner %s not found for channel %s",
+                voice_session.owner_id,
+                channel.id,
+            )
             return
 
         embed = create_control_panel_embed(voice_session, owner)
@@ -125,7 +134,14 @@ async def refresh_panel_embed(
                 voice_session.is_hidden,
                 channel.nsfw,
             )
-            await panel_msg.edit(embed=embed, view=view)
+            try:
+                await panel_msg.edit(embed=embed, view=view)
+            except discord.HTTPException as e:
+                logger.error(
+                    "Failed to edit panel message in channel %s: %s",
+                    channel.id,
+                    e,
+                )
 
 
 async def repost_panel(
@@ -138,21 +154,31 @@ async def repost_panel(
     この関数はメッセージを削除→再作成する。オーナー譲渡時や /panel コマンドで使用。
     """
     async with async_session() as db_session:
-        voice_session = await get_voice_session(
-            db_session, str(channel.id)
-        )
+        voice_session = await get_voice_session(db_session, str(channel.id))
         if not voice_session:
+            logger.debug("No voice session found for channel %s in repost", channel.id)
             return
 
         owner = channel.guild.get_member(int(voice_session.owner_id))
         if not owner:
+            logger.warning(
+                "Owner %s not found for channel %s in repost",
+                voice_session.owner_id,
+                channel.id,
+            )
             return
 
         # 旧パネル削除 (ピン → 履歴の順で探す)
         old_panel = await _find_panel_message(channel)
         if old_panel:
-            with contextlib.suppress(discord.HTTPException):
+            try:
                 await old_panel.delete()
+            except discord.HTTPException as e:
+                logger.debug(
+                    "Failed to delete old panel in channel %s: %s",
+                    channel.id,
+                    e,
+                )
 
         # 新パネル送信
         embed = create_control_panel_embed(voice_session, owner)
@@ -163,7 +189,15 @@ async def repost_panel(
             channel.nsfw,
         )
         bot.add_view(view)
-        await channel.send(embed=embed, view=view)
+        try:
+            await channel.send(embed=embed, view=view)
+            logger.debug("Reposted panel in channel %s", channel.id)
+        except discord.HTTPException as e:
+            logger.error(
+                "Failed to send new panel in channel %s: %s",
+                channel.id,
+                e,
+            )
 
 
 # =============================================================================
@@ -236,9 +270,7 @@ class RenameModal(discord.ui.Modal, title="チャンネル名変更"):
         channel = interaction.channel
         if isinstance(channel, discord.VoiceChannel):
             await interaction.response.defer()
-            await channel.send(
-                f"🏷️ チャンネル名が **{new_name}** に変更されました。"
-            )
+            await channel.send(f"🏷️ チャンネル名が **{new_name}** に変更されました。")
             await refresh_panel_embed(channel)
         else:
             await interaction.response.defer()
@@ -308,9 +340,7 @@ class UserLimitModal(discord.ui.Modal, title="人数制限変更"):
         channel = interaction.channel
         if isinstance(channel, discord.VoiceChannel):
             await interaction.response.defer()
-            await channel.send(
-                f"👥 人数制限が **{limit_text}** に変更されました。"
-            )
+            await channel.send(f"👥 人数制限が **{limit_text}** に変更されました。")
             await refresh_panel_embed(channel)
         else:
             await interaction.response.defer()
@@ -329,22 +359,16 @@ class TransferSelectView(discord.ui.View):
     timeout=60: 60秒操作がないと自動で無効化される。
     """
 
-    def __init__(
-        self, channel: discord.VoiceChannel, owner_id: int
-    ) -> None:
+    def __init__(self, channel: discord.VoiceChannel, owner_id: int) -> None:
         super().__init__(timeout=60)
         # オーナー自身と Bot を除外した候補リストを作成
-        members = [
-            m for m in channel.members if m.id != owner_id and not m.bot
-        ]
+        members = [m for m in channel.members if m.id != owner_id and not m.bot]
         if not members:
             return  # 誰もいなければセレクトメニューを追加しない
         # SelectOption: ドロップダウンの選択肢 (label=表示名, value=内部値)
         # Discord の制限: セレクトの選択肢は最大25個
         options = [
-            discord.SelectOption(
-                label=m.display_name, value=str(m.id)
-            )
+            discord.SelectOption(label=m.display_name, value=str(m.id))
             for m in members[:25]
         ]
         self.add_item(TransferSelectMenu(options))
@@ -354,9 +378,7 @@ class TransferSelectMenu(discord.ui.Select[Any]):
     """オーナー譲渡のセレクトメニュー本体。"""
 
     def __init__(self, options: list[discord.SelectOption]) -> None:
-        super().__init__(
-            placeholder="新しいオーナーを選択...", options=options
-        )
+        super().__init__(placeholder="新しいオーナーを選択...", options=options)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         """ユーザーが選択したときの処理。
@@ -399,9 +421,7 @@ class TransferSelectMenu(discord.ui.Select[Any]):
                     read_message_history=None,
                 )
             # 新オーナー: read_message_history=True (閲覧可)
-            await channel.set_permissions(
-                new_owner, read_message_history=True
-            )
+            await channel.set_permissions(new_owner, read_message_history=True)
 
             # DB のオーナー ID を更新
             await update_voice_session(
@@ -414,9 +434,7 @@ class TransferSelectMenu(discord.ui.Select[Any]):
         await interaction.response.edit_message(content="\u200b", view=None)
         old = interaction.user.mention
         new = new_owner.mention
-        await channel.send(
-            f"👑 {old} → {new} にオーナーが譲渡されました。"
-        )
+        await channel.send(f"👑 {old} → {new} にオーナーが譲渡されました。")
 
         # パネルを再投稿 (旧パネル削除 → 新パネル送信 + ピン留め)
         await repost_panel(channel, interaction.client)  # type: ignore[arg-type]
@@ -462,9 +480,7 @@ class KickSelectView(discord.ui.View):
         await user_to_kick.move_to(None)
         # ephemeral のセレクトメニューを削除し、チャンネルに通知
         await interaction.response.edit_message(content="\u200b", view=None)
-        await channel.send(
-            f"👟 {user_to_kick.mention} がキックされました。"
-        )
+        await channel.send(f"👟 {user_to_kick.mention} がキックされました。")
 
 
 class BlockSelectView(discord.ui.View):
@@ -506,9 +522,7 @@ class BlockSelectView(discord.ui.View):
 
         # ephemeral のセレクトメニューを削除し、チャンネルに通知
         await interaction.response.edit_message(content="\u200b", view=None)
-        await channel.send(
-            f"🚫 {user_to_block.mention} がブロックされました。"
-        )
+        await channel.send(f"🚫 {user_to_block.mention} がブロックされました。")
 
 
 class AllowSelectView(discord.ui.View):
@@ -541,9 +555,73 @@ class AllowSelectView(discord.ui.View):
         await channel.set_permissions(user_to_allow, connect=True)
         # ephemeral のセレクトメニューを削除し、チャンネルに通知
         await interaction.response.edit_message(content="\u200b", view=None)
-        await channel.send(
-            f"✅ {user_to_allow.mention} が許可されました。"
-        )
+        await channel.send(f"✅ {user_to_allow.mention} が許可されました。")
+
+
+class CameraBanSelectView(discord.ui.View):
+    """カメラ禁止対象を選択するユーザーセレクト。
+
+    カメラ禁止 = stream=False で配信権限を拒否する。
+    特定のユーザーのカメラ配信を禁止する場合に使う。
+    """
+
+    def __init__(self) -> None:
+        super().__init__(timeout=60)
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect, placeholder="カメラを禁止するユーザーを選択..."
+    )
+    async def select_user(
+        self, interaction: discord.Interaction, select: discord.ui.UserSelect[Any]
+    ) -> None:
+        """ユーザー選択時の処理。配信権限を拒否する。"""
+        user_to_ban = select.values[0]
+        channel = interaction.channel
+
+        if not isinstance(channel, discord.VoiceChannel):
+            return
+
+        if not isinstance(user_to_ban, discord.Member):
+            return
+
+        # stream=False で配信 (カメラ/画面共有) を禁止
+        await channel.set_permissions(user_to_ban, stream=False)
+        # ephemeral のセレクトメニューを削除し、チャンネルに通知
+        await interaction.response.edit_message(content="\u200b", view=None)
+        await channel.send(f"📵 {user_to_ban.mention} のカメラ配信が禁止されました。")
+
+
+class CameraAllowSelectView(discord.ui.View):
+    """カメラ許可対象を選択するユーザーセレクト。
+
+    カメラ許可 = stream=None で配信権限の上書きを削除する。
+    カメラ禁止を解除する場合に使う。
+    """
+
+    def __init__(self) -> None:
+        super().__init__(timeout=60)
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect, placeholder="カメラを許可するユーザーを選択..."
+    )
+    async def select_user(
+        self, interaction: discord.Interaction, select: discord.ui.UserSelect[Any]
+    ) -> None:
+        """ユーザー選択時の処理。配信権限の上書きを削除する。"""
+        user_to_allow = select.values[0]
+        channel = interaction.channel
+
+        if not isinstance(channel, discord.VoiceChannel):
+            return
+
+        if not isinstance(user_to_allow, discord.Member):
+            return
+
+        # stream=None で配信権限の上書きを削除 (デフォルトに戻す)
+        await channel.set_permissions(user_to_allow, stream=None)
+        # ephemeral のセレクトメニューを削除し、チャンネルに通知
+        await interaction.response.edit_message(content="\u200b", view=None)
+        await channel.send(f"📹 {user_to_allow.mention} のカメラ配信が許可されました。")
 
 
 class BitrateSelectView(discord.ui.View):
@@ -578,9 +656,7 @@ class BitrateSelectMenu(discord.ui.Select[Any]):
     """ビットレートセレクトメニュー本体。"""
 
     def __init__(self, options: list[discord.SelectOption]) -> None:
-        super().__init__(
-            placeholder="ビットレートを選択...", options=options
-        )
+        super().__init__(placeholder="ビットレートを選択...", options=options)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         """選択時の処理。Discord API でビットレートを変更する。"""
@@ -603,9 +679,7 @@ class BitrateSelectMenu(discord.ui.Select[Any]):
         # ephemeral のセレクトメニューを削除し、チャンネルに通知
         await interaction.response.edit_message(content="\u200b", view=None)
         if isinstance(channel, discord.VoiceChannel):
-            await channel.send(
-                f"🔊 ビットレートが **{label}** に変更されました。"
-            )
+            await channel.send(f"🔊 ビットレートが **{label}** に変更されました。")
 
 
 class RegionSelectView(discord.ui.View):
@@ -665,9 +739,7 @@ class RegionSelectMenu(discord.ui.Select[Any]):
         # ephemeral のセレクトメニューを削除し、チャンネルに通知
         await interaction.response.edit_message(content="\u200b", view=None)
         if isinstance(channel, discord.VoiceChannel):
-            await channel.send(
-                f"🌏 リージョンが **{region_name}** に変更されました。"
-            )
+            await channel.send(f"🌏 リージョンが **{region_name}** に変更されました。")
 
 
 # =============================================================================
@@ -685,7 +757,7 @@ class ControlPanelView(discord.ui.View):
       Row 1: [ビットレート] [リージョン]
       Row 2: [ロック] [非表示] [年齢制限]
       Row 3: [譲渡] [キック]
-      Row 4: [ブロック] [許可]
+      Row 4: [ブロック] [許可] [カメラ禁止] [カメラ許可]
 
     timeout=None: タイムアウトなし (永続 View)。
     custom_id: Bot 再起動後もボタンを識別するための固定 ID。
@@ -891,9 +963,7 @@ class ControlPanelView(discord.ui.View):
         emoji = "🔒" if new_locked_state else "🔓"
         # チャンネルに変更通知を送信
         await interaction.response.defer()
-        await channel.send(
-            f"{emoji} チャンネルが **{status}** されました。"
-        )
+        await channel.send(f"{emoji} チャンネルが **{status}** されました。")
         await refresh_panel_embed(channel)
 
     @discord.ui.button(
@@ -953,9 +1023,7 @@ class ControlPanelView(discord.ui.View):
         emoji = "🙈" if new_hidden_state else "👁️"
         # チャンネルに変更通知を送信
         await interaction.response.defer()
-        await channel.send(
-            f"{emoji} チャンネルが **{status}** になりました。"
-        )
+        await channel.send(f"{emoji} チャンネルが **{status}** になりました。")
         await refresh_panel_embed(channel)
 
     @discord.ui.button(
@@ -991,9 +1059,7 @@ class ControlPanelView(discord.ui.View):
         status = "年齢制限を設定" if new_nsfw else "年齢制限を解除"
         # チャンネルに変更通知を送信
         await interaction.response.defer()
-        await channel.send(
-            f"🔞 チャンネルの **{status}** されました。"
-        )
+        await channel.send(f"🔞 チャンネルの **{status}** されました。")
         await refresh_panel_embed(channel)
 
     # =========================================================================
@@ -1076,4 +1142,38 @@ class ControlPanelView(discord.ui.View):
         """許可ボタン。ユーザー選択セレクトを表示する。"""
         await interaction.response.send_message(
             "許可するユーザーを選択:", view=AllowSelectView(), ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="カメラ禁止",
+        emoji="📵",
+        style=discord.ButtonStyle.secondary,
+        custom_id="camera_ban_button",
+        row=4,
+    )
+    async def camera_ban_button(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
+    ) -> None:
+        """カメラ禁止ボタン。ユーザー選択セレクトを表示する。"""
+        await interaction.response.send_message(
+            "カメラを禁止するユーザーを選択:",
+            view=CameraBanSelectView(),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="カメラ許可",
+        emoji="📹",
+        style=discord.ButtonStyle.secondary,
+        custom_id="camera_allow_button",
+        row=4,
+    )
+    async def camera_allow_button(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[Any]
+    ) -> None:
+        """カメラ許可ボタン。ユーザー選択セレクトを表示する。"""
+        await interaction.response.send_message(
+            "カメラを許可するユーザーを選択:",
+            view=CameraAllowSelectView(),
+            ephemeral=True,
         )

@@ -3,9 +3,38 @@
 データベースの CRUD (Create, Read, Update, Delete) 操作を提供する。
 各関数は AsyncSession を受け取り、SQL クエリを実行する。
 
-使い方:
-    async with async_session() as session:
-        lobby = await get_lobby_by_channel_id(session, "123456")
+Examples:
+    基本的な使い方::
+
+        from src.database.engine import async_session
+        from src.services.db_service import get_lobby_by_channel_id
+
+        async with async_session() as session:
+            lobby = await get_lobby_by_channel_id(session, "123456")
+            if lobby:
+                print(f"Found lobby: {lobby.id}")
+
+    トランザクション内での複数操作::
+
+        async with async_session() as session:
+            lobby = await create_lobby(session, guild_id, channel_id)
+            voice_session = await create_voice_session(
+                session,
+                lobby_id=lobby.id,
+                channel_id=new_channel_id,
+                owner_id=user_id,
+                name="New Room",
+            )
+
+See Also:
+    - :mod:`src.database.models`: テーブル定義
+    - :mod:`src.database.engine`: データベース接続設定
+    - SQLAlchemy AsyncSession: https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html
+
+Notes:
+    - 各関数は session.commit() を内部で呼び出す
+    - エラー時は session.rollback() を呼び出し元で行う必要がある
+    - 複数操作をトランザクションで束ねる場合は、commit を最後にまとめる
 """
 
 from datetime import datetime
@@ -36,11 +65,31 @@ async def get_lobby_by_channel_id(
     判定するために使う。
 
     Args:
-        session: DB セッション
-        channel_id: 調べたい Discord チャンネルの ID (文字列)
+        session (AsyncSession): DB セッション。
+        channel_id (str): 調べたい Discord チャンネルの ID (文字列)。
 
     Returns:
-        ロビーが見つかれば Lobby オブジェクト、なければ None
+        Lobby | None: ロビーが見つかれば Lobby オブジェクト、なければ None。
+
+    Raises:
+        sqlalchemy.exc.MultipleResultsFound: 同じ channel_id のレコードが
+            複数存在する場合 (通常は発生しない、ユニーク制約あり)。
+
+    Examples:
+        ロビー判定::
+
+            async with async_session() as session:
+                lobby = await get_lobby_by_channel_id(session, channel_id)
+                if lobby:
+                    # ロビーに参加した → 一時 VC を作成
+                    pass
+                else:
+                    # 通常の VC に参加した
+                    pass
+
+    See Also:
+        - :func:`create_lobby`: ロビー作成
+        - :class:`src.database.models.Lobby`: ロビーモデル
     """
     # select(Lobby) → SELECT * FROM lobbies
     # .where(...) → WHERE lobby_channel_id = :channel_id
@@ -78,14 +127,38 @@ async def create_lobby(
     /lobby コマンドで VC を作成した後に呼ばれる。
 
     Args:
-        session: DB セッション
-        guild_id: Discord サーバーの ID
-        lobby_channel_id: ロビーとして登録する VC の ID
-        category_id: 一時 VC を配置するカテゴリの ID (None なら同カテゴリ)
-        default_user_limit: デフォルトの人数制限 (0 = 無制限)
+        session (AsyncSession): DB セッション。
+        guild_id (str): Discord サーバーの ID。
+        lobby_channel_id (str): ロビーとして登録する VC の ID。
+        category_id (str | None): 一時 VC を配置するカテゴリの ID。
+            None なら同カテゴリ。
+        default_user_limit (int): デフォルトの人数制限 (0 = 無制限)。
 
     Returns:
-        作成された Lobby オブジェクト (id が自動採番される)
+        Lobby: 作成された Lobby オブジェクト (id が自動採番される)。
+
+    Raises:
+        sqlalchemy.exc.IntegrityError: 同じ lobby_channel_id が既に存在する場合。
+
+    Notes:
+        - commit() を内部で呼び出す
+        - refresh() で自動採番された id を取得
+
+    Examples:
+        ロビー作成::
+
+            async with async_session() as session:
+                lobby = await create_lobby(
+                    session,
+                    guild_id="123456789",
+                    lobby_channel_id="987654321",
+                    default_user_limit=10,
+                )
+                print(f"Created lobby with ID: {lobby.id}")
+
+    See Also:
+        - :func:`delete_lobby`: ロビー削除
+        - :func:`get_lobby_by_channel_id`: ロビー取得
     """
     lobby = Lobby(
         guild_id=guild_id,
@@ -175,15 +248,44 @@ async def create_voice_session(
     ユーザーがロビーに参加し、一時 VC が作成された直後に呼ばれる。
 
     Args:
-        session: DB セッション
-        lobby_id: 親ロビーの ID
-        channel_id: 作成された一時 VC の ID
-        owner_id: チャンネルオーナーの Discord ユーザー ID
-        name: チャンネル名
-        user_limit: 人数制限 (0 = 無制限)
+        session (AsyncSession): DB セッション。
+        lobby_id (int): 親ロビーの ID。
+        channel_id (str): 作成された一時 VC の ID。
+        owner_id (str): チャンネルオーナーの Discord ユーザー ID。
+        name (str): チャンネル名。
+        user_limit (int): 人数制限 (0 = 無制限)。
 
     Returns:
-        作成された VoiceSession オブジェクト
+        VoiceSession: 作成された VoiceSession オブジェクト。
+
+    Raises:
+        sqlalchemy.exc.IntegrityError: 同じ channel_id が既に存在する場合、
+            または存在しない lobby_id を指定した場合。
+
+    Notes:
+        - commit() を内部で呼び出す
+        - 作成後、オーナーを VoiceSessionMember として追加する必要がある
+
+    Examples:
+        セッション作成::
+
+            async with async_session() as session:
+                voice_session = await create_voice_session(
+                    session,
+                    lobby_id=lobby.id,
+                    channel_id=str(channel.id),
+                    owner_id=str(member.id),
+                    name=f"{member.display_name}'s channel",
+                )
+                # オーナーをメンバーとして追加
+                await add_voice_session_member(
+                    session, voice_session.id, str(member.id)
+                )
+
+    See Also:
+        - :func:`delete_voice_session`: セッション削除
+        - :func:`update_voice_session`: セッション更新
+        - :func:`add_voice_session_member`: メンバー追加
     """
     voice_session = VoiceSession(
         lobby_id=lobby_id,
@@ -214,16 +316,46 @@ async def update_voice_session(
     で呼ばれる。None のフィールドは変更しない。
 
     Args:
-        session: DB セッション
-        voice_session: 更新対象の VoiceSession オブジェクト
-        name: 新しいチャンネル名 (None なら変更しない)
-        user_limit: 新しい人数制限 (None なら変更しない)
-        is_locked: 新しいロック状態 (None なら変更しない)
-        is_hidden: 新しい非表示状態 (None なら変更しない)
-        owner_id: 新しいオーナー ID (None なら変更しない)
+        session (AsyncSession): DB セッション。
+        voice_session (VoiceSession): 更新対象の VoiceSession オブジェクト。
+        name (str | None): 新しいチャンネル名 (None なら変更しない)。
+        user_limit (int | None): 新しい人数制限 (None なら変更しない)。
+        is_locked (bool | None): 新しいロック状態 (None なら変更しない)。
+        is_hidden (bool | None): 新しい非表示状態 (None なら変更しない)。
+        owner_id (str | None): 新しいオーナー ID (None なら変更しない)。
 
     Returns:
-        更新後の VoiceSession オブジェクト
+        VoiceSession: 更新後の VoiceSession オブジェクト。
+
+    Notes:
+        - キーワード引数のみ受け付ける (``*`` による区切り)
+        - 部分更新パターン: None のフィールドは変更しない
+        - commit() を内部で呼び出す
+
+    Examples:
+        ロック状態のみ変更::
+
+            async with async_session() as session:
+                voice_session = await get_voice_session(session, channel_id)
+                voice_session = await update_voice_session(
+                    session,
+                    voice_session,
+                    is_locked=True,
+                )
+
+        複数フィールドを同時に変更::
+
+            voice_session = await update_voice_session(
+                session,
+                voice_session,
+                name="New Name",
+                user_limit=5,
+                is_hidden=True,
+            )
+
+    See Also:
+        - :func:`get_voice_session`: セッション取得
+        - :class:`src.database.models.VoiceSession`: セッションモデル
     """
     # None でないフィールドだけ更新する (部分更新パターン)
     if name is not None:
@@ -381,16 +513,42 @@ async def upsert_bump_reminder(
     """bump リマインダーを作成または更新する。
 
     同じ guild_id + service_name の組み合わせが既に存在する場合は上書きする。
+    UPSERT (INSERT or UPDATE) パターンを実装。
 
     Args:
-        session: DB セッション
-        guild_id: Discord サーバーの ID
-        channel_id: リマインド通知を送信するチャンネルの ID
-        service_name: サービス名 ("DISBOARD" または "ディス速報")
-        remind_at: リマインドを送信する予定時刻 (UTC)
+        session (AsyncSession): DB セッション。
+        guild_id (str): Discord サーバーの ID。
+        channel_id (str): リマインド通知を送信するチャンネルの ID。
+        service_name (str): サービス名 ("DISBOARD" または "ディス速報")。
+        remind_at (datetime): リマインドを送信する予定時刻 (UTC)。
 
     Returns:
-        作成または更新された BumpReminder オブジェクト
+        BumpReminder: 作成または更新された BumpReminder オブジェクト。
+
+    Notes:
+        - 既存レコードがある場合は channel_id と remind_at のみ更新
+        - is_enabled と role_id は既存の値を保持
+        - commit() を内部で呼び出す
+
+    Examples:
+        bump 検知後のリマインダー設定::
+
+            from datetime import UTC, datetime, timedelta
+
+            async with async_session() as session:
+                remind_at = datetime.now(UTC) + timedelta(hours=2)
+                reminder = await upsert_bump_reminder(
+                    session,
+                    guild_id=str(guild.id),
+                    channel_id=str(channel.id),
+                    service_name="DISBOARD",
+                    remind_at=remind_at,
+                )
+
+    See Also:
+        - :func:`get_due_bump_reminders`: 期限切れリマインダー取得
+        - :func:`clear_bump_reminder`: リマインダーのクリア
+        - :class:`src.database.models.BumpReminder`: リマインダーモデル
     """
     # 既存のレコードを検索
     result = await session.execute(

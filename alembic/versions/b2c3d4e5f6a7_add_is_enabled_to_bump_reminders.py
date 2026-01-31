@@ -43,9 +43,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # remind_at を not null に戻す (null の場合はデフォルト値を設定)
-    op.execute(
-        "UPDATE bump_reminders SET remind_at = NOW() WHERE remind_at IS NULL"
-    )
+    op.execute("UPDATE bump_reminders SET remind_at = NOW() WHERE remind_at IS NULL")
     op.alter_column(
         "bump_reminders",
         "remind_at",

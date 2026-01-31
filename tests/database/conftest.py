@@ -57,9 +57,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
-    factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         yield session
 
@@ -77,9 +75,7 @@ async def lobby(db_session: AsyncSession) -> Lobby:
 
 
 @pytest.fixture
-async def voice_session(
-    db_session: AsyncSession, lobby: Lobby
-) -> VoiceSession:
+async def voice_session(db_session: AsyncSession, lobby: Lobby) -> VoiceSession:
     """テスト用 VoiceSession を1つ作成して返す。"""
     return await create_voice_session(
         db_session,

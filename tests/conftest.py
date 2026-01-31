@@ -2,6 +2,9 @@
 
 import os
 
+# Set DISCORD_TOKEN before any src imports to avoid validation error
+os.environ.setdefault("DISCORD_TOKEN", "test-token-for-testing")
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -22,7 +25,7 @@ def db_session() -> Session:
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     with Session(engine) as session:
-        # Create a test lobby
+        # テスト用ロビーを作成
         lobby = Lobby(guild_id="123456789", lobby_channel_id="987654321")
         session.add(lobby)
         session.commit()

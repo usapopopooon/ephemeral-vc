@@ -60,9 +60,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
-    factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         yield session
 
@@ -164,9 +162,7 @@ class TestVoiceSessionOperations:
         assert found is not None
         assert found.owner_id == "111"
 
-    async def test_get_voice_session_not_found(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_voice_session_not_found(self, db_session: AsyncSession) -> None:
         """Test getting a non-existent voice session."""
         found = await get_voice_session(db_session, "nonexistent")
         assert found is None
@@ -285,9 +281,7 @@ class TestVoiceSessionOperations:
         result = await delete_voice_session(db_session, "nonexistent")
         assert result is False
 
-    async def test_voice_session_default_values(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_voice_session_default_values(self, db_session: AsyncSession) -> None:
         """Test that default values are set correctly."""
         lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
         session = await create_voice_session(
@@ -317,9 +311,7 @@ class TestVoiceSessionMemberOperations:
             name="Test Channel",
         )
 
-        member = await add_voice_session_member(
-            db_session, voice_session.id, "222"
-        )
+        member = await add_voice_session_member(db_session, voice_session.id, "222")
 
         assert member.id is not None
         assert member.voice_session_id == voice_session.id
@@ -340,22 +332,16 @@ class TestVoiceSessionMemberOperations:
         )
 
         # Add member first time
-        member1 = await add_voice_session_member(
-            db_session, voice_session.id, "222"
-        )
+        member1 = await add_voice_session_member(db_session, voice_session.id, "222")
 
         # Add same member again
-        member2 = await add_voice_session_member(
-            db_session, voice_session.id, "222"
-        )
+        member2 = await add_voice_session_member(db_session, voice_session.id, "222")
 
         # Should return same record (idempotent)
         assert member1.id == member2.id
         assert member1.joined_at == member2.joined_at
 
-    async def test_remove_voice_session_member(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_remove_voice_session_member(self, db_session: AsyncSession) -> None:
         """Test removing a member from a voice session."""
         lobby = await create_lobby(db_session, guild_id="123", lobby_channel_id="456")
         voice_session = await create_voice_session(
@@ -368,15 +354,11 @@ class TestVoiceSessionMemberOperations:
 
         await add_voice_session_member(db_session, voice_session.id, "222")
 
-        result = await remove_voice_session_member(
-            db_session, voice_session.id, "222"
-        )
+        result = await remove_voice_session_member(db_session, voice_session.id, "222")
         assert result is True
 
         # Verify member is gone
-        members = await get_voice_session_members_ordered(
-            db_session, voice_session.id
-        )
+        members = await get_voice_session_members_ordered(db_session, voice_session.id)
         assert len(members) == 0
 
     async def test_remove_voice_session_member_not_found(
@@ -419,9 +401,7 @@ class TestVoiceSessionMemberOperations:
         await asyncio.sleep(0.01)
         await add_voice_session_member(db_session, voice_session.id, "third")
 
-        members = await get_voice_session_members_ordered(
-            db_session, voice_session.id
-        )
+        members = await get_voice_session_members_ordered(db_session, voice_session.id)
 
         assert len(members) == 3
         assert members[0].user_id == "first"
@@ -441,9 +421,7 @@ class TestVoiceSessionMemberOperations:
             name="Test Channel",
         )
 
-        members = await get_voice_session_members_ordered(
-            db_session, voice_session.id
-        )
+        members = await get_voice_session_members_ordered(db_session, voice_session.id)
 
         assert members == []
 
@@ -474,9 +452,7 @@ class TestVoiceSessionMemberOperations:
 class TestBumpReminderOperations:
     """Tests for bump reminder database operations."""
 
-    async def test_upsert_bump_reminder_create(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_upsert_bump_reminder_create(self, db_session: AsyncSession) -> None:
         """Test creating a new bump reminder."""
         from datetime import UTC, datetime, timedelta
 
@@ -496,9 +472,7 @@ class TestBumpReminderOperations:
         assert reminder.service_name == "DISBOARD"
         assert reminder.remind_at == remind_at
 
-    async def test_upsert_bump_reminder_update(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_upsert_bump_reminder_update(self, db_session: AsyncSession) -> None:
         """Test updating an existing bump reminder for same guild+service."""
         from datetime import UTC, datetime, timedelta
 
@@ -585,9 +559,7 @@ class TestBumpReminderOperations:
         assert due[0].guild_id == "123"
         assert due[0].service_name == "DISBOARD"
 
-    async def test_get_due_bump_reminders_empty(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_due_bump_reminders_empty(self, db_session: AsyncSession) -> None:
         """Test getting due reminders when none are due."""
         from datetime import UTC, datetime, timedelta
 
@@ -711,16 +683,12 @@ class TestBumpReminderOperations:
         assert reminder.guild_id == "123"
         assert reminder.service_name == "DISBOARD"
 
-    async def test_get_bump_reminder_not_found(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_bump_reminder_not_found(self, db_session: AsyncSession) -> None:
         """Test getting a non-existent bump reminder."""
         reminder = await get_bump_reminder(db_session, "nonexistent", "DISBOARD")
         assert reminder is None
 
-    async def test_update_bump_reminder_role(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_update_bump_reminder_role(self, db_session: AsyncSession) -> None:
         """Test updating the notification role for a bump reminder."""
         from datetime import UTC, datetime, timedelta
 
@@ -735,9 +703,7 @@ class TestBumpReminderOperations:
         )
 
         # Update role
-        result = await update_bump_reminder_role(
-            db_session, "123", "DISBOARD", "999"
-        )
+        result = await update_bump_reminder_role(db_session, "123", "DISBOARD", "999")
         assert result is True
 
         # Verify role was updated
@@ -765,9 +731,7 @@ class TestBumpReminderOperations:
         await update_bump_reminder_role(db_session, "123", "DISBOARD", "999")
 
         # Reset to default
-        result = await update_bump_reminder_role(
-            db_session, "123", "DISBOARD", None
-        )
+        result = await update_bump_reminder_role(db_session, "123", "DISBOARD", None)
         assert result is True
 
         # Verify role was reset
@@ -788,9 +752,7 @@ class TestBumpReminderOperations:
 class TestBumpConfigOperations:
     """Tests for bump config database operations."""
 
-    async def test_upsert_bump_config_create(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_upsert_bump_config_create(self, db_session: AsyncSession) -> None:
         """Test creating a new bump config."""
         config = await upsert_bump_config(
             db_session,
@@ -802,9 +764,7 @@ class TestBumpConfigOperations:
         assert config.channel_id == "456"
         assert config.created_at is not None
 
-    async def test_upsert_bump_config_update(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_upsert_bump_config_update(self, db_session: AsyncSession) -> None:
         """Test updating an existing bump config."""
         # Create first config
         config1 = await upsert_bump_config(
@@ -860,9 +820,7 @@ class TestBumpConfigOperations:
         assert config.guild_id == "123"
         assert config.channel_id == "456"
 
-    async def test_get_bump_config_not_found(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_bump_config_not_found(self, db_session: AsyncSession) -> None:
         """Test getting a non-existent bump config."""
         config = await get_bump_config(db_session, "nonexistent")
         assert config is None
@@ -882,9 +840,7 @@ class TestBumpConfigOperations:
         config = await get_bump_config(db_session, "123")
         assert config is None
 
-    async def test_delete_bump_config_not_found(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_delete_bump_config_not_found(self, db_session: AsyncSession) -> None:
         """Test deleting a non-existent bump config."""
         result = await delete_bump_config(db_session, "nonexistent")
         assert result is False
@@ -956,9 +912,7 @@ class TestStickyMessageOperations:
         assert sticky.channel_id == "456"
         assert sticky.title == "Test Title"
 
-    async def test_get_sticky_message_not_found(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_get_sticky_message_not_found(self, db_session: AsyncSession) -> None:
         """Test getting a non-existent sticky message."""
         sticky = await get_sticky_message(db_session, "nonexistent")
         assert sticky is None
@@ -1090,9 +1044,7 @@ class TestStickyMessageOperations:
 
         assert sticky.message_type == "embed"
 
-    async def test_update_sticky_message_type(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_update_sticky_message_type(self, db_session: AsyncSession) -> None:
         """Test that updating a sticky message preserves and can change type."""
         # 最初に embed タイプで作成
         await create_sticky_message(

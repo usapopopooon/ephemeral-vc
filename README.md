@@ -3,7 +3,7 @@
 [![CI](https://github.com/usapopopooon/discord-util-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/usapopopooon/discord-util-bot/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/usapopopooon/discord-util-bot/graph/badge.svg)](https://codecov.io/gh/usapopopooon/discord-util-bot)
 
-Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加すると専用のボイスチャンネルが自動作成され、全員退出すると自動削除される。Bump リマインダー機能も搭載。
+Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加すると専用のボイスチャンネルが自動作成され、全員退出すると自動削除される。Bump リマインダー、Sticky メッセージ、Web 管理画面も搭載。
 
 ## 機能
 
@@ -34,16 +34,68 @@ Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加す�
 - **自動検出**: `/bump setup` 時にチャンネル履歴から直近の bump を検出し、次回通知時刻を計算
 - **設定状況の表示**: bump 検知時・セットアップ時に現在の通知先ロールを表示
 
+### Sticky メッセージ機能
+- **常に最下部に表示**: チャンネルに常に最新位置に表示されるメッセージを設定
+- **Embed / テキスト対応**: Embed 形式またはプレーンテキスト形式を選択可能
+- **デバウンス方式**: 連続投稿時の負荷を軽減 (遅延秒数を設定可能)
+- **Bot 再起動対応**: DB から設定を復元して動作継続
+
+### Web 管理画面
+- **ダッシュボード**: ロビー、Bump 設定、Sticky メッセージの一覧表示
+- **認証機能**: メール / パスワードによるログイン
+- **パスワードリセット**: SMTP 経由でリセットメールを送信
+- **セキュリティ**: レート制限、セキュア Cookie、セッション管理
+
 ### その他
 - **ヘルスモニタリング**: 10 分ごとにハートビート Embed を送信し死活監視
+- **Graceful シャットダウン**: SIGTERM 受信時に安全に Bot を停止 (Heroku 対応)
+- **SSL 接続**: Heroku Postgres など SSL を要求するデータベースに対応
+- **コネクションプール**: データベース接続数を制限し、クラウド環境に最適化
 
 ## 環境変数
 
-| 変数名 | 必須 | 説明 |
-|--------|------|------|
-| `DISCORD_TOKEN` | Yes | Discord Bot トークン |
-| `DATABASE_URL` | No | PostgreSQL 接続 URL (デフォルト: `postgresql+asyncpg://user@localhost/discord_util_bot`) |
-| `HEALTH_CHANNEL_ID` | No | ヘルスチェック Embed を送信するチャンネル ID (デフォルト: `0` = 無効) |
+### 必須
+
+| 変数名 | 説明 |
+|--------|------|
+| `DISCORD_TOKEN` | Discord Bot トークン |
+
+### オプション (Bot)
+
+| 変数名 | デフォルト | 説明 |
+|--------|-----------|------|
+| `DATABASE_URL` | `postgresql+asyncpg://user@localhost/discord_util_bot` | PostgreSQL 接続 URL |
+| `HEALTH_CHANNEL_ID` | `0` | ヘルスチェック Embed を送信するチャンネル ID (0 = 無効) |
+| `BUMP_CHANNEL_ID` | `0` | Bump リマインダー用チャンネル ID (0 = 無効) |
+
+### オプション (データベース接続)
+
+| 変数名 | デフォルト | 説明 |
+|--------|-----------|------|
+| `DATABASE_REQUIRE_SSL` | `false` | SSL 接続を有効化 (Heroku Postgres 用) |
+| `DB_POOL_SIZE` | `5` | コネクションプールサイズ |
+| `DB_MAX_OVERFLOW` | `10` | オーバーフロー接続数 |
+
+### オプション (Web 管理画面)
+
+| 変数名 | デフォルト | 説明 |
+|--------|-----------|------|
+| `ADMIN_EMAIL` | `admin@example.com` | 初期管理者メールアドレス |
+| `ADMIN_PASSWORD` | `changeme` | 初期管理者パスワード |
+| `SESSION_SECRET_KEY` | (ランダム生成) | セッション署名キー (再起動後もセッション維持する場合は設定) |
+| `SECURE_COOKIE` | `true` | HTTPS 環境でのみ Cookie を送信 |
+| `APP_URL` | `http://localhost:8000` | パスワードリセットリンク用 URL |
+
+### オプション (SMTP / メール送信)
+
+| 変数名 | デフォルト | 説明 |
+|--------|-----------|------|
+| `SMTP_HOST` | (空) | SMTP サーバーホスト名 (設定時にメール機能有効) |
+| `SMTP_PORT` | `587` | SMTP ポート番号 |
+| `SMTP_USER` | (空) | SMTP 認証ユーザー名 |
+| `SMTP_PASSWORD` | (空) | SMTP 認証パスワード |
+| `SMTP_FROM_EMAIL` | (空) | 送信元メールアドレス |
+| `SMTP_USE_TLS` | `true` | TLS を使用するかどうか |
 
 ## セットアップ
 
@@ -65,6 +117,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env  # DISCORD_TOKEN を設定
+
+# マイグレーション実行
+alembic upgrade head
+
+# Bot 起動
 python -m src.main
 ```
 
@@ -76,6 +133,28 @@ docker-compose up -d
 ```
 
 PostgreSQL と Bot が一緒に起動する。
+
+### Heroku へのデプロイ
+
+1. 必要な環境変数を設定:
+   - `DISCORD_TOKEN`: Bot トークン
+   - `DATABASE_URL`: Heroku Postgres の URL (自動設定される)
+   - `DATABASE_REQUIRE_SSL`: `true`
+
+2. Procfile で Bot を起動:
+   ```
+   worker: python -m src.main
+   ```
+
+3. Web 管理画面を使用する場合:
+   ```
+   web: uvicorn src.web.app:app --host 0.0.0.0 --port $PORT
+   ```
+
+4. デプロイは GitHub Actions から手動トリガーで実行:
+   - **ローカルからの手動デプロイは禁止** (バージョン齟齬・テスト見逃し防止)
+   - `main` ブランチへの push → CI テスト実行
+   - GitHub Actions で手動トリガー → テスト → デプロイ
 
 ## スラッシュコマンド
 
@@ -90,9 +169,17 @@ PostgreSQL と Bot が一緒に起動する。
 
 | コマンド | 説明 |
 |---------|------|
-| `/bump setup` | bump 監視を開始 (実行したチャンネルを監視) |
-| `/bump status` | bump 監視の設定状況を確認 |
-| `/bump disable` | bump 監視を停止 |
+| `/bump setup` | Bump 監視を開始 (実行したチャンネルを監視) |
+| `/bump status` | Bump 監視の設定状況を確認 |
+| `/bump disable` | Bump 監視を停止 |
+
+### Sticky コマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `/sticky set` | Sticky メッセージを設定 (Embed/テキスト選択) |
+| `/sticky remove` | Sticky メッセージを削除 |
+| `/sticky status` | Sticky メッセージの設定状況を確認 |
 
 ## コントロールパネル
 
@@ -116,25 +203,31 @@ PostgreSQL と Bot が一緒に起動する。
 
 ```
 src/
-├── main.py              # エントリーポイント
+├── main.py              # エントリーポイント (SIGTERM ハンドラ含む)
 ├── bot.py               # Bot クラス定義
 ├── config.py            # pydantic-settings による設定管理
+├── constants.py         # アプリケーション定数
 ├── cogs/
-│   ├── admin.py         # 管理者用コマンド (将来の拡張用)
+│   ├── admin.py         # 管理者用コマンド (/vc lobby)
 │   ├── voice.py         # VC 自動作成・削除、/vc コマンド
 │   ├── bump.py          # Bump リマインダー (/bump コマンド)
+│   ├── sticky.py        # Sticky メッセージ (/sticky コマンド)
 │   └── health.py        # ハートビート死活監視
 ├── core/
 │   ├── permissions.py   # Discord 権限ヘルパー
 │   ├── validators.py    # 入力バリデーション
 │   └── builders.py      # チャンネル作成ビルダー
 ├── database/
-│   ├── engine.py        # SQLAlchemy 非同期エンジン
-│   └── models.py        # Lobby / VoiceSession モデル
+│   ├── engine.py        # SQLAlchemy 非同期エンジン (SSL/プール設定)
+│   └── models.py        # DB モデル定義
 ├── services/
 │   └── db_service.py    # DB CRUD 操作
-└── ui/
-    └── control_panel.py # コントロールパネル UI (View / Button / Select)
+├── ui/
+│   └── control_panel.py # コントロールパネル UI (View / Button / Select)
+└── web/
+    ├── app.py           # FastAPI Web 管理画面
+    ├── email_service.py # メール送信サービス
+    └── templates.py     # HTML テンプレート
 ```
 
 ## 開発
@@ -158,14 +251,35 @@ make test
 
 # カバレッジ付き
 .venv/bin/pytest --cov --cov-report=html
+
+# 特定のテストファイル
+.venv/bin/pytest tests/cogs/test_sticky.py -v
+```
+
+### マイグレーション
+
+```bash
+# マイグレーション作成
+alembic revision --autogenerate -m "Add new table"
+
+# マイグレーション適用
+alembic upgrade head
+
+# ロールバック
+alembic downgrade -1
 ```
 
 ### CI
 
 GitHub Actions で以下を自動実行:
-- Ruff (リンター)
+- Ruff format (フォーマットチェック)
+- Ruff check (リンター)
 - mypy (型チェック)
 - pytest + Codecov (テスト + カバレッジ)
+
+## アーキテクチャ
+
+詳細なアーキテクチャ・設計ドキュメントは [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照。
 
 ## License
 

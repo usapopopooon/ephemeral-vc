@@ -25,9 +25,7 @@ fake = Faker()
 class TestLobbySessionLifecycle:
     """ロビー → セッション作成 → 更新 → 削除の一連フローテスト。"""
 
-    async def test_full_lifecycle(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_full_lifecycle(self, db_session: AsyncSession) -> None:
         """ロビー作成 → セッション作成 → 更新 → セッション削除 → ロビー削除。"""
         # ロビー作成
         lobby = await create_lobby(
@@ -114,9 +112,7 @@ class TestLobbySessionLifecycle:
             for cid in all_channels[lobby.id]:
                 assert await get_voice_session(db_session, cid) is not None
 
-    async def test_owner_transfer_and_verify(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_owner_transfer_and_verify(self, db_session: AsyncSession) -> None:
         """オーナー譲渡後にセッションを再取得して反映を確認。"""
         lobby = await create_lobby(
             db_session,
@@ -146,17 +142,11 @@ class TestLobbySessionLifecycle:
 class TestDataIsolation:
     """データ分離・整合性テスト。"""
 
-    async def test_guild_lobby_isolation(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_guild_lobby_isolation(self, db_session: AsyncSession) -> None:
         """異なるギルドのロビーは完全に分離されている。"""
         g1, g2 = snowflake(), snowflake()
-        l1 = await create_lobby(
-            db_session, guild_id=g1, lobby_channel_id=snowflake()
-        )
-        l2 = await create_lobby(
-            db_session, guild_id=g2, lobby_channel_id=snowflake()
-        )
+        l1 = await create_lobby(db_session, guild_id=g1, lobby_channel_id=snowflake())
+        l2 = await create_lobby(db_session, guild_id=g2, lobby_channel_id=snowflake())
 
         g1_lobbies = await get_lobbies_by_guild(db_session, g1)
         g2_lobbies = await get_lobbies_by_guild(db_session, g2)
@@ -166,9 +156,7 @@ class TestDataIsolation:
         assert len(g2_lobbies) == 1
         assert g2_lobbies[0].id == l2.id
 
-    async def test_session_deletion_isolation(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_session_deletion_isolation(self, db_session: AsyncSession) -> None:
         """セッション削除は同じロビーの他セッションに影響しない。"""
         lobby = await create_lobby(
             db_session,
@@ -192,9 +180,7 @@ class TestDataIsolation:
         assert await get_voice_session(db_session, ch2) is None
         assert await get_voice_session(db_session, ch3) is not None
 
-    async def test_lobby_lookup_by_channel_id(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_lobby_lookup_by_channel_id(self, db_session: AsyncSession) -> None:
         """channel_id でロビーを正しく取得できる。"""
         target_cid = snowflake()
         # ダミーロビーを先に作成
@@ -268,9 +254,7 @@ class TestDataIsolation:
         await update_voice_session(db_session, vs, name="updated")
         assert len(await get_all_voice_sessions(db_session)) == 1
 
-    async def test_lobby_with_category_id(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_lobby_with_category_id(self, db_session: AsyncSession) -> None:
         """category_id 付きロビーの作成と取得。"""
         cat_id = snowflake()
         cid = snowflake()
