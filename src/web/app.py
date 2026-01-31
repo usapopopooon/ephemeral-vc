@@ -26,7 +26,7 @@ from src.constants import (
     LOGIN_WINDOW_SECONDS,
     PASSWORD_MIN_LENGTH,
     RATE_LIMIT_CLEANUP_INTERVAL_SECONDS,
-    RESET_TOKEN_EXPIRY_SECONDS,
+    # RESET_TOKEN_EXPIRY_SECONDS,  # SMTP 未設定のため未使用
     SESSION_MAX_AGE_SECONDS,
     TOKEN_BYTE_LENGTH,
 )
@@ -39,8 +39,8 @@ from src.database.models import (
     StickyMessage,
 )
 from src.web.email_service import (
-    send_email_change_verification,
-    send_password_reset_email,
+    send_email_change_verification,  # noqa: F401  # SMTP 設定時に使用
+    # send_password_reset_email,  # SMTP 未設定のため未使用
 )
 from src.web.templates import (
     bump_list_page,
@@ -159,10 +159,12 @@ async def get_or_create_admin(db: AsyncSession) -> AdminUser | None:
     admin = result.scalar_one_or_none()
 
     if admin is None and INIT_ADMIN_PASSWORD:
-        # 環境変数から初期管理者を作成
+        # 環境変数から初期管理者を作成（認証済みとして設定）
         admin = AdminUser(
             email=INIT_ADMIN_EMAIL,
             password_hash=hash_password(INIT_ADMIN_PASSWORD),
+            email_verified=True,
+            password_changed_at=datetime.now(UTC),
         )
         db.add(admin)
         await db.commit()
@@ -462,28 +464,48 @@ async def initial_setup_post(
     admin.password_hash = hash_password(new_password)
     admin.password_changed_at = datetime.now(UTC)
 
-    # 保留中のメールアドレスを設定し、認証トークンを生成
-    token = secrets.token_urlsafe(TOKEN_BYTE_LENGTH)
-    admin.pending_email = new_email
-    admin.email_change_token = token
-    admin.email_change_token_expires_at = datetime.now(UTC) + timedelta(
-        seconds=EMAIL_CHANGE_TOKEN_EXPIRY_SECONDS
-    )
+    # メールアドレスを直接更新（SMTP 未設定のため認証スキップ）
+    admin.email = new_email
+    admin.email_verified = True
+    admin.pending_email = None
+    admin.email_change_token = None
+    admin.email_change_token_expires_at = None
+
+    # # 保留中のメールアドレスを設定し、認証トークンを生成
+    # token = secrets.token_urlsafe(TOKEN_BYTE_LENGTH)
+    # admin.pending_email = new_email
+    # admin.email_change_token = token
+    # admin.email_change_token_expires_at = datetime.now(UTC) + timedelta(
+    #     seconds=EMAIL_CHANGE_TOKEN_EXPIRY_SECONDS
+    # )
+
     await db.commit()
 
-    # 認証メールを送信
-    email_sent = send_email_change_verification(new_email, token)
+    # # 認証メールを送信
+    # email_sent = send_email_change_verification(new_email, token)
+    #
+    # # メール送信失敗時は警告付きで認証待ちページにリダイレクト
+    # if not email_sent:
+    #     return HTMLResponse(
+    #         content=email_verification_pending_page(
+    #             pending_email=new_email,
+    #             error="Failed to send verification email. Check SMTP configuration.",
+    #         )
+    #     )
+    #
+    # return RedirectResponse(url="/verify-email", status_code=302)
 
-    # メール送信失敗時は警告付きで認証待ちページにリダイレクト
-    if not email_sent:
-        return HTMLResponse(
-            content=email_verification_pending_page(
-                pending_email=new_email,
-                error="Failed to send verification email. Check SMTP configuration.",
-            )
-        )
-
-    return RedirectResponse(url="/verify-email", status_code=302)
+    # セッションを更新してダッシュボードにリダイレクト
+    response = RedirectResponse(url="/dashboard", status_code=302)
+    response.set_cookie(
+        key="session",
+        value=create_session_token(new_email),
+        max_age=SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        secure=SECURE_COOKIE,
+        samesite="lax",
+    )
+    return response
 
 
 @app.get("/verify-email", response_model=None)
@@ -575,28 +597,36 @@ async def forgot_password_post(
     # 入力値のトリム
     email = email.strip() if email else ""
 
-    # メールアドレスの存在を推測されないよう、常に成功メッセージを表示
-    success_message = (
-        "If an account exists with that email, a reset link has been sent."
-    )
+    # # メールアドレスの存在を推測されないよう、常に成功メッセージを表示
+    # success_message = (
+    #     "If an account exists with that email, a reset link has been sent."
+    # )
+    #
+    # # メールアドレスで管理者を検索
+    # result = await db.execute(select(AdminUser).where(AdminUser.email == email))
+    # admin = result.scalar_one_or_none()
+    #
+    # if admin:
+    #     # リセットトークンを生成
+    #     token = secrets.token_urlsafe(TOKEN_BYTE_LENGTH)
+    #     admin.reset_token = token
+    #     admin.reset_token_expires_at = datetime.now(UTC) + timedelta(
+    #         seconds=RESET_TOKEN_EXPIRY_SECONDS
+    #     )
+    #     await db.commit()
+    #
+    #     # メールを送信
+    #     send_password_reset_email(admin.email, token)
+    #
+    # return HTMLResponse(content=forgot_password_page(success=success_message))
 
-    # メールアドレスで管理者を検索
-    result = await db.execute(select(AdminUser).where(AdminUser.email == email))
-    admin = result.scalar_one_or_none()
-
-    if admin:
-        # リセットトークンを生成
-        token = secrets.token_urlsafe(TOKEN_BYTE_LENGTH)
-        admin.reset_token = token
-        admin.reset_token_expires_at = datetime.now(UTC) + timedelta(
-            seconds=RESET_TOKEN_EXPIRY_SECONDS
+    # SMTP 未設定のエラーメッセージを表示
+    _ = email, db  # unused variable warning 回避
+    return HTMLResponse(
+        content=forgot_password_page(
+            error="Password reset is not available. SMTP is not configured."
         )
-        await db.commit()
-
-        # メールを送信
-        send_password_reset_email(admin.email, token)
-
-    return HTMLResponse(content=forgot_password_page(success=success_message))
+    )
 
 
 @app.get("/reset-password", response_model=None)
@@ -813,34 +843,53 @@ async def settings_email_post(
             )
         )
 
-    # 認証トークンを生成し、保留中のメールアドレスを保存
-    token = secrets.token_urlsafe(TOKEN_BYTE_LENGTH)
-    admin.pending_email = new_email
-    admin.email_change_token = token
-    admin.email_change_token_expires_at = datetime.now(UTC) + timedelta(
-        seconds=EMAIL_CHANGE_TOKEN_EXPIRY_SECONDS
-    )
+    # メールアドレスを直接更新（SMTP 未設定のため認証スキップ）
+    admin.email = new_email
+    admin.pending_email = None
+    admin.email_change_token = None
+    admin.email_change_token_expires_at = None
+
+    # # 認証トークンを生成し、保留中のメールアドレスを保存
+    # token = secrets.token_urlsafe(TOKEN_BYTE_LENGTH)
+    # admin.pending_email = new_email
+    # admin.email_change_token = token
+    # admin.email_change_token_expires_at = datetime.now(UTC) + timedelta(
+    #     seconds=EMAIL_CHANGE_TOKEN_EXPIRY_SECONDS
+    # )
+
     await db.commit()
 
-    # 新しいメールアドレスに認証メールを送信
-    email_sent = send_email_change_verification(new_email, token)
+    # # 新しいメールアドレスに認証メールを送信
+    # email_sent = send_email_change_verification(new_email, token)
+    #
+    # if email_sent:
+    #     return HTMLResponse(
+    #         content=email_change_page(
+    #             current_email=admin.email,
+    #             pending_email=admin.pending_email,
+    #             success="Verification email sent. Please check your inbox.",
+    #         )
+    #     )
+    # else:
+    #     return HTMLResponse(
+    #         content=email_change_page(
+    #             current_email=admin.email,
+    #             pending_email=admin.pending_email,
+    #             error="Failed to send verification email. Check SMTP configuration.",
+    #         )
+    #     )
 
-    if email_sent:
-        return HTMLResponse(
-            content=email_change_page(
-                current_email=admin.email,
-                pending_email=admin.pending_email,
-                success="Verification email sent. Please check your inbox.",
-            )
-        )
-    else:
-        return HTMLResponse(
-            content=email_change_page(
-                current_email=admin.email,
-                pending_email=admin.pending_email,
-                error="Failed to send verification email. Check SMTP configuration.",
-            )
-        )
+    # セッションを更新してリダイレクト
+    response = RedirectResponse(url="/settings", status_code=302)
+    response.set_cookie(
+        key="session",
+        value=create_session_token(new_email),
+        max_age=SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        secure=SECURE_COOKIE,
+        samesite="lax",
+    )
+    return response
 
 
 @app.get("/settings/password", response_model=None)

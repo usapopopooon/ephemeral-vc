@@ -99,11 +99,13 @@ def login_page(error: str | None = None) -> str:
                     Login
                 </button>
             </form>
+            <!-- SMTP 未設定のため非表示
             <div class="mt-4 text-center">
                 <a href="/forgot-password" class="text-blue-400 hover:text-blue-300 text-sm">
                     Forgot password?
                 </a>
             </div>
+            -->
         </div>
     </div>
     """

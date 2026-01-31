@@ -198,9 +198,9 @@ class TestLoginRoutes:
             },
             follow_redirects=False,
         )
-        # パスワード未変更のため初回セットアップへのリダイレクトが期待される
+        # 認証済み状態で作成されるため、ダッシュボードへ直接リダイレクト
         assert response.status_code == 302
-        assert response.headers.get("location") == "/initial-setup"
+        assert response.headers.get("location") == "/dashboard"
 
     async def test_login_auto_creates_admin_from_env(
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
@@ -220,9 +220,9 @@ class TestLoginRoutes:
             },
             follow_redirects=False,
         )
-        # 初回セットアップなので /initial-setup にリダイレクト
+        # 認証済み状態で作成されるため、ダッシュボードへ直接リダイレクト
         assert response.status_code == 302
-        assert response.headers["location"] == "/initial-setup"
+        assert response.headers["location"] == "/dashboard"
         assert "session" in response.cookies
 
 
@@ -857,14 +857,17 @@ class TestInitialSetupFlow:
             },
             follow_redirects=False,
         )
+        # SMTP 未設定のため、ダッシュボードへ直接リダイレクト
         assert response.status_code == 302
-        assert response.headers["location"] == "/verify-email"
+        assert response.headers["location"] == "/dashboard"
 
         # DBが更新されていることを確認
         await db_session.refresh(initial_admin_user)
-        assert initial_admin_user.pending_email == "newadmin@example.com"
+        # メールアドレスが直接更新される（pending_email ではなく）
+        assert initial_admin_user.email == "newadmin@example.com"
+        assert initial_admin_user.pending_email is None
         assert initial_admin_user.password_changed_at is not None
-        assert initial_admin_user.email_verified is False
+        assert initial_admin_user.email_verified is True
 
     async def test_initial_setup_invalid_email(
         self, client: AsyncClient, initial_admin_user: AdminUser
@@ -1068,36 +1071,37 @@ class TestForgotPasswordRoutes:
     async def test_forgot_password_with_valid_email(
         self, client: AsyncClient, admin_user: AdminUser
     ) -> None:
-        """有効なメールアドレスでリセットリクエストを送信できる。"""
+        """SMTP 未設定のため、パスワードリセットは利用不可。"""
         response = await client.post(
             "/forgot-password",
             data={"email": TEST_ADMIN_EMAIL},
         )
         assert response.status_code == 200
-        assert "reset link has been sent" in response.text
+        assert "SMTP is not configured" in response.text
 
     async def test_forgot_password_with_invalid_email(
         self, client: AsyncClient, admin_user: AdminUser
     ) -> None:
-        """存在しないメールアドレスでも同じメッセージが表示される（情報漏洩防止）。"""
+        """SMTP 未設定のため、どのメールアドレスでも同じエラーが表示される。"""
         response = await client.post(
             "/forgot-password",
             data={"email": "nonexistent@example.com"},
         )
         assert response.status_code == 200
-        assert "reset link has been sent" in response.text
+        assert "SMTP is not configured" in response.text
 
     async def test_forgot_password_sets_reset_token(
         self, client: AsyncClient, admin_user: AdminUser, db_session: AsyncSession
     ) -> None:
-        """リセットリクエストでトークンがDBに保存される。"""
+        """SMTP 未設定のため、リセットトークンは生成されない。"""
         await client.post(
             "/forgot-password",
             data={"email": TEST_ADMIN_EMAIL},
         )
         await db_session.refresh(admin_user)
-        assert admin_user.reset_token is not None
-        assert admin_user.reset_token_expires_at is not None
+        # SMTP 未設定のためトークンは設定されない
+        assert admin_user.reset_token is None
+        assert admin_user.reset_token_expires_at is None
 
 
 class TestResetPasswordRoutes:
@@ -1246,13 +1250,15 @@ class TestEmailChangeVerification:
     async def test_settings_email_change_sends_verification(
         self, authenticated_client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        """メールアドレス変更時に確認メールが送信される。"""
+        """SMTP 未設定のため、メールアドレスは直接変更される。"""
         response = await authenticated_client.post(
             "/settings/email",
             data={"new_email": "newemail@example.com"},
+            follow_redirects=False,
         )
-        assert response.status_code == 200
-        assert "Verification email sent" in response.text
+        # リダイレクトで設定ページに戻る
+        assert response.status_code == 302
+        assert response.headers["location"] == "/settings"
 
     async def test_settings_email_same_email_error(
         self, authenticated_client: AsyncClient, admin_user: AdminUser
@@ -1531,14 +1537,16 @@ class TestWebAdminWithFaker:
     async def test_change_to_random_email(
         self, authenticated_client: AsyncClient
     ) -> None:
-        """Faker で生成したメールアドレスに変更できる。"""
+        """Faker で生成したメールアドレスに変更できる（SMTP 未設定のため直接変更）。"""
         new_email = fake.email()
         response = await authenticated_client.post(
             "/settings/email",
             data={"new_email": new_email},
+            follow_redirects=False,
         )
-        assert response.status_code == 200
-        assert "Verification email sent" in response.text
+        # SMTP 未設定のため、リダイレクトで設定ページに戻る
+        assert response.status_code == 302
+        assert response.headers["location"] == "/settings"
 
     async def test_change_to_random_password(
         self, authenticated_client: AsyncClient

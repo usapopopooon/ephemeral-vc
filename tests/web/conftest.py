@@ -111,7 +111,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides[get_db] = override_get_db
 
-    transport = ASGITransport(app=app)  # type: ignore[arg-type]
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
@@ -147,9 +147,10 @@ def mock_email_sending() -> Generator[None, None, None]:
             "src.web.app.send_email_change_verification",
             return_value=True,
         ),
-        patch(
-            "src.web.app.send_password_reset_email",
-            return_value=True,
-        ),
+        # SMTP 未設定のためコメントアウト
+        # patch(
+        #     "src.web.app.send_password_reset_email",
+        #     return_value=True,
+        # ),
     ):
         yield
