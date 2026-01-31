@@ -886,6 +886,72 @@ class TestTransferOwnership:
             )
             mock_update.assert_not_awaited()
 
+    async def test_handles_permission_http_exception(self) -> None:
+        """set_permissions の HTTPException を処理する。"""
+        cog = _make_cog()
+        old_owner = _make_member(1)
+        new_owner = _make_member(2)
+        channel = _make_channel(100, [new_owner])
+        channel.set_permissions = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(status=500), "error")
+        )
+        channel.send = AsyncMock()
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: new_owner if uid == 2 else None
+
+        voice_session = _make_voice_session(channel_id="100", owner_id="1")
+
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
+
+        mock_session = AsyncMock()
+        with (
+            patch("src.cogs.voice.update_voice_session", new_callable=AsyncMock),
+            patch("src.cogs.voice.repost_panel", new_callable=AsyncMock),
+            patch(
+                "src.cogs.voice.get_voice_session_members_ordered",
+                new_callable=AsyncMock,
+                return_value=[mock_db_member2],
+            ),
+        ):
+            # HTTPException は警告ログで処理されエラーにならない
+            await cog._transfer_ownership(
+                mock_session, voice_session, old_owner, channel
+            )
+
+    async def test_handles_send_notification_http_exception(self) -> None:
+        """通知送信の HTTPException を処理する。"""
+        cog = _make_cog()
+        old_owner = _make_member(1)
+        new_owner = _make_member(2)
+        channel = _make_channel(100, [new_owner])
+        channel.set_permissions = AsyncMock()
+        channel.send = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(status=500), "error")
+        )
+        channel.guild = MagicMock()
+        channel.guild.get_member = lambda uid: new_owner if uid == 2 else None
+
+        voice_session = _make_voice_session(channel_id="100", owner_id="1")
+
+        mock_db_member2 = MagicMock()
+        mock_db_member2.user_id = "2"
+
+        mock_session = AsyncMock()
+        with (
+            patch("src.cogs.voice.update_voice_session", new_callable=AsyncMock),
+            patch("src.cogs.voice.repost_panel", new_callable=AsyncMock),
+            patch(
+                "src.cogs.voice.get_voice_session_members_ordered",
+                new_callable=AsyncMock,
+                return_value=[mock_db_member2],
+            ),
+        ):
+            # HTTPException は警告ログで処理されエラーにならない
+            await cog._transfer_ownership(
+                mock_session, voice_session, old_owner, channel
+            )
+
 
 # ===========================================================================
 # _find_panel_message テスト
@@ -967,6 +1033,43 @@ class TestFindPanelMessage:
 
         result = await cog._find_panel_message(channel)
         assert result is bot_msg
+
+    async def test_handles_pins_http_exception(self) -> None:
+        """pins() で HTTPException が発生しても履歴にフォールバックする。"""
+        cog = _make_cog()
+        channel = _make_channel(100)
+
+        channel.pins = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(status=500), "error")
+        )
+
+        bot_msg = MagicMock()
+        bot_msg.author = cog.bot.user
+        bot_msg.embeds = [MagicMock()]
+
+        async def _aiter() -> MagicMock:
+            yield bot_msg
+
+        channel.history = MagicMock(return_value=_aiter())
+
+        result = await cog._find_panel_message(channel)
+        assert result is bot_msg
+
+    async def test_handles_history_http_exception(self) -> None:
+        """history() で HTTPException が発生すると None を返す。"""
+        cog = _make_cog()
+        channel = _make_channel(100)
+
+        channel.pins = AsyncMock(return_value=[])
+
+        async def _error_aiter() -> MagicMock:
+            raise discord.HTTPException(MagicMock(status=500), "error")
+            yield  # make it an async generator  # noqa: RET503
+
+        channel.history = MagicMock(return_value=_error_aiter())
+
+        result = await cog._find_panel_message(channel)
+        assert result is None
 
 
 # ===========================================================================
@@ -2393,3 +2496,136 @@ class TestVoiceCogWithParametrize:
             cog._handle_lobby_join.assert_awaited_once()
         else:
             cog._handle_lobby_join.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Tests for _record_join_to_db and _remove_join_from_db
+# ---------------------------------------------------------------------------
+
+
+class TestRecordJoinToDb:
+    """Tests for _record_join_to_db."""
+
+    @patch("src.cogs.voice.async_session")
+    @patch("src.cogs.voice.get_voice_session")
+    @patch("src.cogs.voice.add_voice_session_member")
+    async def test_records_member_when_session_exists(
+        self,
+        mock_add_member: AsyncMock,
+        mock_get_session: AsyncMock,
+        mock_session_factory: MagicMock,
+    ) -> None:
+        """既存セッションがある場合、メンバーが記録される。"""
+        mock_session = AsyncMock()
+        mock_session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        voice_session = _make_voice_session()
+        mock_get_session.return_value = voice_session
+
+        cog = _make_cog()
+        await cog._record_join_to_db(100, 123)
+
+        mock_get_session.assert_awaited_once_with(mock_session, "100")
+        mock_add_member.assert_awaited_once_with(mock_session, voice_session.id, "123")
+
+    @patch("src.cogs.voice.async_session")
+    @patch("src.cogs.voice.get_voice_session")
+    @patch("src.cogs.voice.add_voice_session_member")
+    async def test_does_nothing_when_no_session(
+        self,
+        mock_add_member: AsyncMock,
+        mock_get_session: AsyncMock,
+        mock_session_factory: MagicMock,
+    ) -> None:
+        """セッションが存在しない場合、何もしない。"""
+        mock_session = AsyncMock()
+        mock_session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        mock_get_session.return_value = None
+
+        cog = _make_cog()
+        await cog._record_join_to_db(100, 123)
+
+        mock_add_member.assert_not_awaited()
+
+
+class TestRemoveJoinFromDb:
+    """Tests for _remove_join_from_db."""
+
+    @patch("src.cogs.voice.async_session")
+    @patch("src.cogs.voice.get_voice_session")
+    @patch("src.cogs.voice.remove_voice_session_member")
+    async def test_removes_member_when_session_exists(
+        self,
+        mock_remove_member: AsyncMock,
+        mock_get_session: AsyncMock,
+        mock_session_factory: MagicMock,
+    ) -> None:
+        """既存セッションがある場合、メンバーが削除される。"""
+        mock_session = AsyncMock()
+        mock_session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        voice_session = _make_voice_session()
+        mock_get_session.return_value = voice_session
+
+        cog = _make_cog()
+        await cog._remove_join_from_db(100, 123)
+
+        mock_get_session.assert_awaited_once_with(mock_session, "100")
+        mock_remove_member.assert_awaited_once_with(
+            mock_session, voice_session.id, "123"
+        )
+
+    @patch("src.cogs.voice.async_session")
+    @patch("src.cogs.voice.get_voice_session")
+    @patch("src.cogs.voice.remove_voice_session_member")
+    async def test_does_nothing_when_no_session(
+        self,
+        mock_remove_member: AsyncMock,
+        mock_get_session: AsyncMock,
+        mock_session_factory: MagicMock,
+    ) -> None:
+        """セッションが存在しない場合、何もしない。"""
+        mock_session = AsyncMock()
+        mock_session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        mock_get_session.return_value = None
+
+        cog = _make_cog()
+        await cog._remove_join_from_db(100, 123)
+
+        mock_remove_member.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Tests for setup function
+# ---------------------------------------------------------------------------
+
+
+class TestVoiceCogSetup:
+    """Tests for setup function."""
+
+    async def test_setup_adds_cog(self) -> None:
+        """setup() が Cog を追加する。"""
+        from src.cogs.voice import setup
+
+        bot = MagicMock(spec=discord.ext.commands.Bot)
+        bot.add_cog = AsyncMock()
+
+        await setup(bot)
+
+        bot.add_cog.assert_awaited_once()
+        args = bot.add_cog.call_args[0]
+        assert isinstance(args[0], VoiceCog)

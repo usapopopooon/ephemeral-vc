@@ -2424,3 +2424,281 @@ class TestBumpWithParameterize:
         )
 
         assert expected_in_embed in (embed.description or "")
+
+
+# ---------------------------------------------------------------------------
+# 追加テスト: 未カバー行のテスト
+# ---------------------------------------------------------------------------
+
+
+class TestBumpRoleSelectViewResetButton:
+    """BumpRoleSelectView のリセットボタンテスト。"""
+
+    async def test_reset_button_returns_when_no_menu_found(self) -> None:
+        """メニューが見つからない場合は早期リターン。"""
+        from src.cogs.bump import BumpRoleSelectView
+
+        view = BumpRoleSelectView("12345", "DISBOARD", None)
+        # メニューを強制的に削除
+        view.clear_items()
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild_id = 12345
+        interaction.response = MagicMock()
+        interaction.response.edit_message = AsyncMock()
+
+        # エラーが発生しないことを確認
+        await view.reset_button.callback(interaction)
+
+        # edit_message は呼ばれない (早期リターン)
+        interaction.response.edit_message.assert_not_called()
+
+
+class TestCogUnloadWhenNotRunning:
+    """cog_unload でループが実行中でない場合のテスト。"""
+
+    async def test_cog_unload_when_loop_not_running(self) -> None:
+        """ループが実行中でない場合、cancel は呼ばれない。"""
+        cog = _make_cog()
+        cog._reminder_check.is_running = MagicMock(return_value=False)
+        cog._reminder_check.cancel = MagicMock()
+
+        await cog.cog_unload()
+
+        cog._reminder_check.cancel.assert_not_called()
+
+
+class TestProcessBumpMessageNoEmbeds:
+    """_process_bump_message で embed もコンテンツもない場合のテスト。"""
+
+    @patch("src.cogs.bump.async_session")
+    async def test_returns_early_when_no_embeds_and_no_content(
+        self, mock_session: MagicMock
+    ) -> None:
+        """embed もコンテンツもない場合は早期リターン。"""
+        cog = _make_cog()
+        message = _make_message(
+            author_id=DISBOARD_BOT_ID,
+            channel_id=456,
+            guild_id=12345,
+        )
+        message.embeds = []
+        message.content = None
+
+        await cog._process_bump_message(message)
+
+        # DB アクセスは発生しない
+        mock_session.assert_not_called()
+
+
+class TestProcessBumpMessageNoUser:
+    """_process_bump_message で bump ユーザーを取得できない場合のテスト。"""
+
+    @patch("src.cogs.bump.async_session")
+    @patch("src.cogs.bump.get_bump_config")
+    async def test_returns_early_when_no_bump_user(
+        self, mock_get_config: MagicMock, mock_session: MagicMock
+    ) -> None:
+        """bump ユーザーを取得できない場合は早期リターン。"""
+        cog = _make_cog()
+
+        # bump 成功のメッセージを作成 (interaction_metadata なし)
+        message = _make_message(
+            author_id=DISBOARD_BOT_ID,
+            channel_id=456,
+            guild_id=12345,
+            embed_description=f"サーバーの{DISBOARD_SUCCESS_KEYWORD}しました！",
+        )
+        message.interaction_metadata = None
+
+        # 設定あり
+        config = MagicMock()
+        config.channel_id = "456"
+        mock_get_config.return_value = config
+
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_ctx
+
+        await cog._process_bump_message(message)
+
+
+class TestProcessBumpMessageHttpException:
+    """_process_bump_message で HTTPException が発生する場合のテスト。"""
+
+    @patch("src.cogs.bump.async_session")
+    @patch("src.cogs.bump.get_bump_config")
+    @patch("src.cogs.bump.upsert_bump_reminder")
+    async def test_handles_http_exception_when_sending(
+        self,
+        mock_upsert: MagicMock,
+        mock_get_config: MagicMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """Embed 送信時の HTTPException を処理。"""
+        cog = _make_cog()
+
+        member = _make_member()
+        message = _make_message(
+            author_id=DISBOARD_BOT_ID,
+            channel_id=456,
+            guild_id=12345,
+            embed_description=f"サーバーの{DISBOARD_SUCCESS_KEYWORD}しました！",
+            interaction_user=member,
+        )
+        message.interaction_metadata = MagicMock()
+        message.interaction_metadata.user = member
+        message.channel.send = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(), "Error")
+        )
+
+        config = MagicMock()
+        config.channel_id = "456"
+        mock_get_config.return_value = config
+
+        reminder = MagicMock()
+        reminder.is_enabled = True
+        reminder.role_id = None
+        mock_upsert.return_value = reminder
+
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_ctx
+
+        # エラーが発生してもクラッシュしない
+        await cog._process_bump_message(message)
+
+
+class TestGetBumpUserNotMember:
+    """_get_bump_user で interaction_metadata.user が Member でない場合のテスト。"""
+
+    def test_returns_none_when_get_member_returns_none(self) -> None:
+        """guild.get_member が None を返す場合は None。"""
+        cog = _make_cog()
+
+        # discord.User を返す (Member ではない)
+        user = MagicMock(spec=discord.User)
+        user.id = 12345
+
+        message = MagicMock(spec=discord.Message)
+        message.interaction_metadata = MagicMock()
+        message.interaction_metadata.user = user
+        message.guild = MagicMock()
+        message.guild.get_member = MagicMock(return_value=None)
+
+        result = cog._get_bump_user(message)
+        assert result is None
+
+
+class TestSendReminderHttpException:
+    """_send_reminder で HTTPException が発生する場合のテスト。"""
+
+    async def test_handles_http_exception(self) -> None:
+        """リマインダー送信時の HTTPException を処理。"""
+        cog = _make_cog()
+
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.guild = MagicMock()
+        channel.guild.get_role = MagicMock(return_value=None)
+        channel.guild.roles = []
+        channel.send = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(), "Error")
+        )
+
+        cog.bot.get_channel = MagicMock(return_value=channel)
+
+        reminder = _make_reminder()
+
+        # エラーが発生してもクラッシュしない
+        await cog._send_reminder(reminder)
+
+
+class TestBumpStatusNoGuild:
+    """bump_status で guild がない場合のテスト。"""
+
+    async def test_returns_error_when_no_guild(self) -> None:
+        """guild がない場合はエラーメッセージ。"""
+        cog = _make_cog()
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = None
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await cog.bump_status.callback(cog, interaction)
+
+        interaction.response.send_message.assert_called_once()
+        call_kwargs = interaction.response.send_message.call_args[1]
+        assert "サーバー内でのみ" in call_kwargs.get("content", "") or any(
+            "サーバー内でのみ" in str(arg)
+            for arg in interaction.response.send_message.call_args[0]
+        )
+
+
+class TestBumpDisableNoGuild:
+    """bump_disable で guild がない場合のテスト。"""
+
+    async def test_returns_error_when_no_guild(self) -> None:
+        """guild がない場合はエラーメッセージ。"""
+        cog = _make_cog()
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = None
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await cog.bump_disable.callback(cog, interaction)
+
+        interaction.response.send_message.assert_called_once()
+
+
+class TestBumpSetupWithRecentBump:
+    """bump_setup で直近の bump を検出した場合のテスト。"""
+
+    @patch("src.cogs.bump.async_session")
+    @patch("src.cogs.bump.upsert_bump_config")
+    @patch("src.cogs.bump.upsert_bump_reminder")
+    async def test_detects_recent_bump_with_custom_role(
+        self,
+        mock_upsert_reminder: MagicMock,
+        mock_upsert_config: MagicMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """直近の bump 検出時にカスタムロールがある場合のテスト。"""
+        from datetime import UTC, datetime, timedelta
+
+        cog = _make_cog()
+
+        # カスタムロールがあるリマインダー
+        reminder = MagicMock()
+        reminder.is_enabled = True
+        reminder.role_id = "999"
+        mock_upsert_reminder.return_value = reminder
+
+        # ロールを取得できる
+        custom_role = MagicMock()
+        custom_role.name = "カスタムBumper"
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = MagicMock()
+        interaction.guild.id = 12345
+        interaction.guild.get_role = MagicMock(return_value=custom_role)
+        interaction.channel = MagicMock(spec=discord.TextChannel)
+        interaction.channel_id = 456
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        # _find_recent_bump のモック (bump 検出)
+        bump_time = datetime.now(UTC) - timedelta(hours=1)
+        cog._find_recent_bump = AsyncMock(return_value=("DISBOARD", bump_time))
+
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_ctx
+
+        await cog.bump_setup.callback(cog, interaction)
+
+        interaction.response.send_message.assert_called_once()

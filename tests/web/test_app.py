@@ -678,6 +678,30 @@ class TestDeleteNonExistent:
 # ===========================================================================
 
 
+class TestUnauthenticatedGetRequests:
+    """認証なしの GET リクエストのテスト。"""
+
+    async def test_initial_setup_get_requires_auth(self, client: AsyncClient) -> None:
+        """認証なしで初回セットアップGETは /login にリダイレクトされる。"""
+        response = await client.get("/initial-setup", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_settings_email_get_requires_auth(self, client: AsyncClient) -> None:
+        """認証なしでメール変更GETは /login にリダイレクトされる。"""
+        response = await client.get("/settings/email", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_settings_password_get_requires_auth(
+        self, client: AsyncClient
+    ) -> None:
+        """認証なしでパスワード変更GETは /login にリダイレクトされる。"""
+        response = await client.get("/settings/password", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+
 class TestUnauthenticatedPostRequests:
     """認証なしの POST リクエストのテスト。"""
 
@@ -2020,3 +2044,485 @@ class TestResetPasswordPostEdgeCases:
         )
         assert response.status_code == 200
         assert "Invalid or expired reset token" in response.text
+
+    async def test_reset_password_post_password_too_long(
+        self, client: AsyncClient, admin_user: AdminUser, db_session: AsyncSession
+    ) -> None:
+        """パスワードが長すぎる場合（72バイト超）はエラー。"""
+        admin_user.reset_token = "long_pw_token"
+        admin_user.reset_token_expires_at = datetime.now(UTC) + timedelta(hours=1)
+        await db_session.commit()
+
+        # 72バイトを超えるパスワード
+        long_password = "a" * 80
+        response = await client.post(
+            "/reset-password",
+            data={
+                "token": "long_pw_token",
+                "new_password": long_password,
+                "confirm_password": long_password,
+            },
+        )
+        assert response.status_code == 200
+        assert "at most 72 bytes" in response.text
+
+
+# ===========================================================================
+# パスワードが長すぎる場合のテスト
+# ===========================================================================
+
+
+class TestPasswordTooLong:
+    """パスワードが72バイトを超える場合のテスト。"""
+
+    async def test_initial_setup_password_too_long(
+        self, client: AsyncClient, initial_admin_user: AdminUser
+    ) -> None:
+        """初回セットアップでパスワードが72バイトを超えるとエラー。"""
+        # ログイン
+        login_response = await client.post(
+            "/login",
+            data={
+                "email": TEST_ADMIN_EMAIL,
+                "password": TEST_ADMIN_PASSWORD,
+            },
+            follow_redirects=False,
+        )
+        session_cookie = login_response.cookies.get("session")
+        if session_cookie:
+            client.cookies.set("session", session_cookie)
+
+        # 72バイトを超えるパスワード
+        long_password = "a" * 80
+        response = await client.post(
+            "/initial-setup",
+            data={
+                "new_email": "newadmin@example.com",
+                "new_password": long_password,
+                "confirm_password": long_password,
+            },
+        )
+        assert response.status_code == 200
+        assert "at most 72 bytes" in response.text
+
+    async def test_settings_password_change_password_too_long(
+        self, authenticated_client: AsyncClient
+    ) -> None:
+        """パスワード変更で72バイトを超えるパスワードはエラー。"""
+        long_password = "a" * 80
+        response = await authenticated_client.post(
+            "/settings/password",
+            data={
+                "new_password": long_password,
+                "confirm_password": long_password,
+            },
+        )
+        assert response.status_code == 200
+        assert "at most 72 bytes" in response.text
+
+
+# ===========================================================================
+# hash_password の長いパスワードテスト
+# ===========================================================================
+
+
+class TestHashPasswordLong:
+    """hash_password で長いパスワードのテスト。"""
+
+    def test_hash_password_truncates_long_password(self) -> None:
+        """72バイトを超えるパスワードは切り詰められてハッシュ化される。"""
+        from src.web.app import hash_password
+
+        long_password = "a" * 100
+        hashed = hash_password(long_password)
+        # ハッシュが生成される
+        assert hashed.startswith("$2b$")
+
+
+# ===========================================================================
+# verify_password のエッジケース
+# ===========================================================================
+
+
+class TestVerifyPasswordEdgeCases:
+    """verify_password のエッジケーステスト。"""
+
+    def test_verify_password_empty_password(self) -> None:
+        """空のパスワードは False を返す。"""
+        from src.web.app import verify_password
+
+        assert verify_password("", "some_hash") is False
+
+    def test_verify_password_empty_hash(self) -> None:
+        """空のハッシュは False を返す。"""
+        from src.web.app import verify_password
+
+        assert verify_password("password", "") is False
+
+    def test_verify_password_invalid_hash_format(self) -> None:
+        """無効なハッシュ形式は False を返す。"""
+        from src.web.app import verify_password
+
+        assert verify_password("password", "not_a_valid_bcrypt_hash") is False
+
+
+# ===========================================================================
+# verify_session_token のエッジケース
+# ===========================================================================
+
+
+class TestVerifySessionTokenEdgeCases:
+    """verify_session_token のエッジケーステスト。"""
+
+    def test_verify_session_token_empty_string(self) -> None:
+        """空文字列は None を返す。"""
+        from src.web.app import verify_session_token
+
+        assert verify_session_token("") is None
+
+    def test_verify_session_token_whitespace(self) -> None:
+        """空白のみのトークンは None を返す。"""
+        from src.web.app import verify_session_token
+
+        assert verify_session_token("   ") is None
+
+
+# ===========================================================================
+# レート制限クリーンアップのテスト
+# ===========================================================================
+
+
+class TestRateLimitCleanup:
+    """レート制限クリーンアップのテスト。"""
+
+    def test_cleanup_removes_old_entries(self) -> None:
+        """古いエントリがクリーンアップされる。"""
+        import time
+
+        import src.web.app as web_app_module
+        from src.web.app import (
+            LOGIN_ATTEMPTS,
+            _cleanup_old_rate_limit_entries,
+        )
+
+        # 古いタイムスタンプを設定（5分以上前）
+        old_time = time.time() - 400
+        test_ip = "10.0.0.1"
+        LOGIN_ATTEMPTS[test_ip] = [old_time]
+
+        # 強制的にクリーンアップを実行
+        web_app_module._last_cleanup_time = 0
+        _cleanup_old_rate_limit_entries()
+
+        # 古いIPが削除されている
+        assert test_ip not in LOGIN_ATTEMPTS
+
+    def test_cleanup_keeps_valid_entries(self) -> None:
+        """有効なエントリは保持される。"""
+        import time
+
+        import src.web.app as web_app_module
+        from src.web.app import (
+            LOGIN_ATTEMPTS,
+            _cleanup_old_rate_limit_entries,
+        )
+
+        # 新しいタイムスタンプを設定
+        test_ip = "10.0.0.2"
+        LOGIN_ATTEMPTS[test_ip] = [time.time()]
+
+        # 強制的にクリーンアップを実行
+        web_app_module._last_cleanup_time = 0
+        _cleanup_old_rate_limit_entries()
+
+        # 新しいIPは保持される
+        assert test_ip in LOGIN_ATTEMPTS
+
+        # クリーンアップ
+        LOGIN_ATTEMPTS.pop(test_ip, None)
+
+
+# ===========================================================================
+# record_failed_attempt のエッジケース
+# ===========================================================================
+
+
+class TestRecordFailedAttemptEdgeCases:
+    """record_failed_attempt のエッジケーステスト。"""
+
+    def test_record_failed_attempt_empty_ip(self) -> None:
+        """空のIPは記録されない。"""
+        from src.web.app import LOGIN_ATTEMPTS, record_failed_attempt
+
+        initial_count = len(LOGIN_ATTEMPTS)
+        record_failed_attempt("")
+        assert len(LOGIN_ATTEMPTS) == initial_count
+
+
+# ===========================================================================
+# admin が None の場合のテスト
+# ===========================================================================
+
+
+class TestAdminNoneScenarios:
+    """admin が None の場合のテスト。"""
+
+    async def test_login_admin_none(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ログイン時に admin が None の場合はエラー。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        # get_or_create_admin を None を返すようにモック
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await client.post(
+            "/login",
+            data={
+                "email": "test@example.com",
+                "password": "password123",
+            },
+        )
+        assert response.status_code == 500
+        assert "ADMIN_PASSWORD not configured" in response.text
+
+    async def test_initial_setup_get_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """初回セットアップGETで admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        # get_or_create_admin を None を返すようにモック
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.get(
+            "/initial-setup", follow_redirects=False
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_initial_setup_post_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """初回セットアップPOSTで admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.post(
+            "/initial-setup",
+            data={
+                "new_email": "new@example.com",
+                "new_password": "password123",
+                "confirm_password": "password123",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_verify_email_get_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """verify-email GETで admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.get(
+            "/verify-email", follow_redirects=False
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_resend_verification_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """resend-verification で admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.post(
+            "/resend-verification", follow_redirects=False
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_settings_get_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """settings GETで admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.get("/settings", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_settings_email_get_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """settings/email GETで admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.get(
+            "/settings/email", follow_redirects=False
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_settings_email_post_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """settings/email POSTで admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.post(
+            "/settings/email",
+            data={"new_email": "new@example.com"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_settings_password_get_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """settings/password GETで admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.get(
+            "/settings/password", follow_redirects=False
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+    async def test_settings_password_post_admin_none(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """settings/password POSTで admin が None の場合はリダイレクト。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.post(
+            "/settings/password",
+            data={
+                "new_password": "newpassword123",
+                "confirm_password": "newpassword123",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "/login"
+
+
+# ===========================================================================
+# resend_verification でメール送信失敗のテスト
+# ===========================================================================
+
+
+class TestDashboardAdminNone:
+    """dashboard で admin が None の場合のテスト。"""
+
+    async def test_dashboard_admin_none_shows_page(
+        self, authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ダッシュボードで admin が None の場合でもページが表示される。"""
+        from unittest.mock import AsyncMock
+
+        import src.web.app as web_app_module
+
+        # get_or_create_admin を None を返すようにモック
+        monkeypatch.setattr(
+            web_app_module, "get_or_create_admin", AsyncMock(return_value=None)
+        )
+
+        response = await authenticated_client.get("/dashboard")
+        assert response.status_code == 200
+        assert "Dashboard" in response.text
+
+
+class TestResendVerificationEmailFailure:
+    """確認メール再送でメール送信失敗のテスト。"""
+
+    async def test_resend_verification_email_send_fails(
+        self,
+        client: AsyncClient,
+        unverified_admin_user: AdminUser,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """メール送信が失敗した場合はエラーメッセージが表示される。"""
+        import src.web.app as web_app_module
+
+        # メール送信を失敗させる
+        monkeypatch.setattr(
+            web_app_module,
+            "send_email_change_verification",
+            lambda _email, _token: False,
+        )
+
+        # ログイン
+        login_response = await client.post(
+            "/login",
+            data={
+                "email": TEST_ADMIN_EMAIL,
+                "password": TEST_ADMIN_PASSWORD,
+            },
+            follow_redirects=False,
+        )
+        session_cookie = login_response.cookies.get("session")
+        if session_cookie:
+            client.cookies.set("session", session_cookie)
+
+        response = await client.post("/resend-verification")
+        assert response.status_code == 200
+        assert "Failed to send verification email" in response.text

@@ -2012,3 +2012,184 @@ class TestStickyWithParameterize:
 
         call_kwargs = mock_create.call_args[1]
         assert call_kwargs["color"] == expected_color
+
+
+# ---------------------------------------------------------------------------
+# 追加テスト: 未カバー行のテスト
+# ---------------------------------------------------------------------------
+
+
+class TestStickyModalChannelBranches:
+    """Modal 送信時のチャンネル分岐テスト。"""
+
+    async def test_embed_modal_channel_no_send_method(
+        self,
+        cog: StickyCog,
+        interaction: MagicMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """チャンネルに send メソッドがない場合でも正常終了。"""
+        modal = StickyEmbedModal(cog)
+
+        modal.sticky_title._value = "Title"
+        modal.description._value = "Description"
+        modal.color._value = ""
+        modal.delay._value = "5"
+
+        # send メソッドがないチャンネル
+        channel_mock = MagicMock()
+        del channel_mock.send  # send メソッドを削除
+        interaction.channel = channel_mock
+
+        with (
+            patch("src.cogs.sticky.async_session", return_value=mock_session),
+            patch(
+                "src.cogs.sticky.create_sticky_message",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await modal.on_submit(interaction)
+
+        interaction.response.send_message.assert_called_once()
+
+    async def test_text_modal_channel_no_send_method(
+        self,
+        cog: StickyCog,
+        interaction: MagicMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """テキストモーダル: チャンネルに send メソッドがない場合でも正常終了。"""
+        from src.cogs.sticky import StickyTextModal
+
+        modal = StickyTextModal(cog)
+
+        modal.content._value = "Test content"
+        modal.delay._value = "5"
+
+        # send メソッドがないチャンネル
+        channel_mock = MagicMock()
+        del channel_mock.send
+        interaction.channel = channel_mock
+
+        with (
+            patch("src.cogs.sticky.async_session", return_value=mock_session),
+            patch(
+                "src.cogs.sticky.create_sticky_message",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await modal.on_submit(interaction)
+
+        interaction.response.send_message.assert_called_once()
+
+
+class TestRemoveStickyBranches:
+    """sticky_remove の分岐テスト。"""
+
+    @patch("src.cogs.sticky.async_session")
+    @patch("src.cogs.sticky.get_sticky_message")
+    @patch("src.cogs.sticky.delete_sticky_message")
+    async def test_remove_with_not_found_exception(
+        self,
+        mock_delete: AsyncMock,
+        mock_get: AsyncMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """メッセージが見つからない場合の NotFound 例外処理。"""
+        bot = MagicMock(spec=commands.Bot)
+        bot.add_view = MagicMock()
+        cog = StickyCog(bot)
+
+        sticky = MagicMock()
+        sticky.message_id = "456"
+        mock_get.return_value = sticky
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = MagicMock()
+        interaction.guild.id = 12345
+        interaction.channel = MagicMock()
+        interaction.channel_id = 123
+        interaction.channel.fetch_message = AsyncMock(
+            side_effect=discord.NotFound(MagicMock(), "Not found")
+        )
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_ctx
+
+        await cog.sticky_remove.callback(cog, interaction)
+
+        # 削除成功メッセージが送信される
+        interaction.response.send_message.assert_called()
+
+    @patch("src.cogs.sticky.async_session")
+    @patch("src.cogs.sticky.get_sticky_message")
+    @patch("src.cogs.sticky.delete_sticky_message")
+    async def test_remove_with_http_exception(
+        self,
+        mock_delete: AsyncMock,
+        mock_get: AsyncMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """メッセージ削除時の HTTPException 処理。"""
+        bot = MagicMock(spec=commands.Bot)
+        bot.add_view = MagicMock()
+        cog = StickyCog(bot)
+
+        sticky = MagicMock()
+        sticky.message_id = "456"
+        mock_get.return_value = sticky
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = MagicMock()
+        interaction.guild.id = 12345
+        interaction.channel = MagicMock()
+        interaction.channel_id = 123
+        interaction.channel.fetch_message = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(), "Error")
+        )
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_ctx
+
+        await cog.sticky_remove.callback(cog, interaction)
+
+        # 削除成功メッセージが送信される
+        interaction.response.send_message.assert_called()
+
+
+class TestSetupWithStickies:
+    """setup 関数で sticky が存在する場合のテスト。"""
+
+    @patch("src.cogs.sticky.async_session")
+    @patch("src.cogs.sticky.get_all_sticky_messages")
+    async def test_setup_logs_existing_stickies(
+        self,
+        mock_get_all: AsyncMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """既存の sticky 設定がある場合にログ出力される。"""
+        from src.cogs.sticky import setup
+
+        bot = MagicMock(spec=commands.Bot)
+        bot.add_cog = AsyncMock()
+
+        # sticky が存在する場合
+        mock_get_all.return_value = [MagicMock(), MagicMock()]
+
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_ctx
+
+        await setup(bot)
+
+        bot.add_cog.assert_called_once()
+        mock_get_all.assert_called_once()

@@ -406,3 +406,100 @@ class TestHeartbeatLogging:
             mock_logger.info.assert_called_once()
             log_msg = mock_logger.info.call_args[0][0]
             assert "Heartbeat" in log_msg
+
+
+# ---------------------------------------------------------------------------
+# 追加テスト: 未カバー行のテスト
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatHttpException:
+    """_heartbeat で HTTPException が発生する場合のテスト。"""
+
+    async def test_handles_http_exception_on_send(self) -> None:
+        """Embed 送信時の HTTPException を処理。"""
+        cog = _make_cog(latency=0.05, guild_count=2)
+
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.send = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(), "Error")
+        )
+        cog.bot.get_channel = MagicMock(return_value=channel)
+
+        with (
+            patch("src.cogs.health.settings") as mock_settings,
+            patch("src.cogs.health.logger") as mock_logger,
+        ):
+            mock_settings.health_channel_id = 123456789
+            await cog._heartbeat()
+
+            # エラーログが出力される
+            mock_logger.error.assert_called()
+
+
+class TestBeforeHeartbeatBranches:
+    """_before_heartbeat の分岐テスト。"""
+
+    async def test_channel_not_found_logs_warning(self) -> None:
+        """チャンネルが見つからない場合は警告ログ。"""
+        cog = _make_cog()
+        cog.bot.get_channel = MagicMock(return_value=None)
+
+        with (
+            patch("src.cogs.health.settings") as mock_settings,
+            patch("src.cogs.health.logger") as mock_logger,
+        ):
+            mock_settings.health_channel_id = 123456789
+            await cog._before_heartbeat()
+
+            mock_logger.warning.assert_called()
+
+    async def test_channel_not_text_channel_logs_warning(self) -> None:
+        """チャンネルが TextChannel でない場合は警告ログ。"""
+        cog = _make_cog()
+        # VoiceChannel を返す (TextChannel ではない)
+        channel = MagicMock(spec=discord.VoiceChannel)
+        cog.bot.get_channel = MagicMock(return_value=channel)
+
+        with (
+            patch("src.cogs.health.settings") as mock_settings,
+            patch("src.cogs.health.logger") as mock_logger,
+        ):
+            mock_settings.health_channel_id = 123456789
+            await cog._before_heartbeat()
+
+            mock_logger.warning.assert_called()
+
+    async def test_http_exception_on_deploy_notification(self) -> None:
+        """デプロイ通知送信時の HTTPException を処理。"""
+        cog = _make_cog()
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.send = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(), "Error")
+        )
+        cog.bot.get_channel = MagicMock(return_value=channel)
+
+        with (
+            patch("src.cogs.health.settings") as mock_settings,
+            patch("src.cogs.health.logger") as mock_logger,
+        ):
+            mock_settings.health_channel_id = 123456789
+            await cog._before_heartbeat()
+
+            mock_logger.error.assert_called()
+
+
+class TestSetupFunction:
+    """setup 関数のテスト。"""
+
+    async def test_setup_adds_cog(self) -> None:
+        """setup で Cog が追加される。"""
+        from src.cogs.health import setup
+
+        bot = MagicMock(spec=commands.Bot)
+        bot.add_cog = AsyncMock()
+        bot.guilds = []
+
+        await setup(bot)
+
+        bot.add_cog.assert_awaited_once()
