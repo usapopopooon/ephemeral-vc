@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
@@ -12,6 +12,8 @@ from src.ui.role_panel_view import (
     RolePanelCreateModal,
     RolePanelView,
     create_role_panel_embed,
+    handle_role_reaction,
+    refresh_role_panel,
 )
 
 # ===========================================================================
@@ -266,3 +268,492 @@ class TestCreateRolePanelEmbed:
         embed = create_role_panel_embed(panel, items)
         # フィールドなし
         assert len(embed.fields) == 0
+
+
+# ===========================================================================
+# refresh_role_panel
+# ===========================================================================
+
+
+class TestRefreshRolePanel:
+    """refresh_role_panel のテスト。"""
+
+    @pytest.mark.asyncio
+    async def test_returns_false_if_no_message_id(self) -> None:
+        """message_id が None の場合 False を返す。"""
+        channel = MagicMock(spec=discord.TextChannel)
+        panel = _make_role_panel(message_id=None)
+        bot = MagicMock(spec=discord.Client)
+
+        result = await refresh_role_panel(channel, panel, [], bot)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_if_message_not_found(self) -> None:
+        """メッセージが見つからない場合 False を返す。"""
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(), ""))
+        panel = _make_role_panel(message_id="123456")
+        bot = MagicMock(spec=discord.Client)
+
+        result = await refresh_role_panel(channel, panel, [], bot)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_http_exception(self) -> None:
+        """HTTPException 発生時は False を返す。"""
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.fetch_message = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(), "error")
+        )
+        panel = _make_role_panel(message_id="123456")
+        bot = MagicMock(spec=discord.Client)
+
+        result = await refresh_role_panel(channel, panel, [], bot)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_updates_button_panel(self) -> None:
+        """ボタン式パネルを更新できる。"""
+        msg = MagicMock(spec=discord.Message)
+        msg.edit = AsyncMock()
+
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.fetch_message = AsyncMock(return_value=msg)
+
+        panel = _make_role_panel(panel_type="button", message_id="123456")
+        items = [_make_role_panel_item(emoji="🎮", label="Test")]
+
+        bot = MagicMock(spec=discord.Client)
+        bot.add_view = MagicMock()
+
+        result = await refresh_role_panel(channel, panel, items, bot)
+
+        assert result is True
+        msg.edit.assert_called_once()
+        bot.add_view.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_updates_reaction_panel(self) -> None:
+        """リアクション式パネルを更新できる。"""
+        msg = MagicMock(spec=discord.Message)
+        msg.edit = AsyncMock()
+        msg.clear_reactions = AsyncMock()
+        msg.add_reaction = AsyncMock()
+
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.fetch_message = AsyncMock(return_value=msg)
+
+        panel = _make_role_panel(panel_type="reaction", message_id="123456")
+        items = [
+            _make_role_panel_item(emoji="🎮"),
+            _make_role_panel_item(emoji="🎨"),
+        ]
+
+        bot = MagicMock(spec=discord.Client)
+
+        result = await refresh_role_panel(channel, panel, items, bot)
+
+        assert result is True
+        msg.edit.assert_called_once()
+        msg.clear_reactions.assert_called_once()
+        assert msg.add_reaction.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_handles_reaction_add_error(self) -> None:
+        """リアクション追加失敗時もパネル更新は成功扱い。"""
+        msg = MagicMock(spec=discord.Message)
+        msg.edit = AsyncMock()
+        msg.clear_reactions = AsyncMock()
+        msg.add_reaction = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(), "error")
+        )
+
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.fetch_message = AsyncMock(return_value=msg)
+
+        panel = _make_role_panel(panel_type="reaction", message_id="123456")
+        items = [_make_role_panel_item(emoji="🎮")]
+
+        bot = MagicMock(spec=discord.Client)
+
+        # リアクション追加失敗しても True が返る
+        result = await refresh_role_panel(channel, panel, items, bot)
+        assert result is True
+
+
+# ===========================================================================
+# handle_role_reaction
+# ===========================================================================
+
+
+class TestHandleRoleReaction:
+    """handle_role_reaction のテスト。"""
+
+    @pytest.mark.asyncio
+    async def test_returns_early_if_member_is_none_on_add(self) -> None:
+        """add 時に member が None なら早期リターン。"""
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = None
+
+        # 早期リターンするためエラーにならない
+        await handle_role_reaction(payload, "add")
+
+    @pytest.mark.asyncio
+    async def test_returns_if_panel_not_found(self) -> None:
+        """パネルが見つからない場合は何もしない。"""
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = MagicMock()
+        payload.message_id = 123456
+        payload.emoji = MagicMock()
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch("src.ui.role_panel_view.get_role_panel_item_by_emoji"),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=None,
+            ):
+                await handle_role_reaction(payload, "add")
+
+    @pytest.mark.asyncio
+    async def test_returns_if_panel_is_not_reaction_type(self) -> None:
+        """パネルがリアクション式でない場合は何もしない。"""
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = MagicMock()
+        payload.message_id = 123456
+        payload.emoji = MagicMock()
+
+        panel = _make_role_panel(panel_type="button")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch("src.ui.role_panel_view.get_role_panel_item_by_emoji"),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                await handle_role_reaction(payload, "add")
+
+    @pytest.mark.asyncio
+    async def test_returns_if_item_not_found(self) -> None:
+        """アイテムが見つからない場合は何もしない。"""
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = MagicMock()
+        payload.message_id = 123456
+        payload.emoji = "🎮"
+
+        panel = _make_role_panel(panel_type="reaction")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch(
+                "src.ui.role_panel_view.get_role_panel_item_by_emoji",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                await handle_role_reaction(payload, "add")
+
+    @pytest.mark.asyncio
+    async def test_returns_early_on_remove_action(self) -> None:
+        """remove アクション時は guild 取得できず早期リターン。"""
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = None  # remove 時は member が None
+        payload.message_id = 123456
+        payload.emoji = "🎮"
+
+        panel = _make_role_panel(panel_type="reaction")
+        item = _make_role_panel_item(emoji="🎮", role_id="111")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch(
+                "src.ui.role_panel_view.get_role_panel_item_by_emoji",
+                new_callable=AsyncMock,
+                return_value=item,
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                # remove action で member が取得できないので早期リターン
+                await handle_role_reaction(payload, "remove")
+
+    @pytest.mark.asyncio
+    async def test_ignores_bot_member(self) -> None:
+        """Bot ユーザーのリアクションは無視する。"""
+        member = MagicMock(spec=discord.Member)
+        member.bot = True
+
+        guild = MagicMock(spec=discord.Guild)
+
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = member
+        payload.member.guild = guild
+        payload.message_id = 123456
+        payload.emoji = "🎮"
+
+        panel = _make_role_panel(panel_type="reaction")
+        item = _make_role_panel_item(emoji="🎮", role_id="111")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch(
+                "src.ui.role_panel_view.get_role_panel_item_by_emoji",
+                new_callable=AsyncMock,
+                return_value=item,
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                # Bot なので処理されない
+                await handle_role_reaction(payload, "add")
+
+    @pytest.mark.asyncio
+    async def test_adds_role_on_add_action(self) -> None:
+        """add アクションでロールを付与する。"""
+        role = MagicMock(spec=discord.Role)
+
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.roles = []  # ロールを持っていない
+        member.add_roles = AsyncMock()
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.get_role = MagicMock(return_value=role)
+
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = member
+        payload.member.guild = guild
+        payload.message_id = 123456
+        payload.emoji = "🎮"
+
+        panel = _make_role_panel(panel_type="reaction")
+        item = _make_role_panel_item(emoji="🎮", role_id="111")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch(
+                "src.ui.role_panel_view.get_role_panel_item_by_emoji",
+                new_callable=AsyncMock,
+                return_value=item,
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                await handle_role_reaction(payload, "add")
+
+        member.add_roles.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_add_if_already_has_role(self) -> None:
+        """既にロールを持っている場合は追加しない。"""
+        role = MagicMock(spec=discord.Role)
+
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.roles = [role]  # 既にロールを持っている
+        member.add_roles = AsyncMock()
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.get_role = MagicMock(return_value=role)
+
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = member
+        payload.member.guild = guild
+        payload.message_id = 123456
+        payload.emoji = "🎮"
+
+        panel = _make_role_panel(panel_type="reaction")
+        item = _make_role_panel_item(emoji="🎮", role_id="111")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch(
+                "src.ui.role_panel_view.get_role_panel_item_by_emoji",
+                new_callable=AsyncMock,
+                return_value=item,
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                await handle_role_reaction(payload, "add")
+
+        member.add_roles.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handles_role_not_found(self) -> None:
+        """ロールが見つからない場合は何もしない。"""
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.get_role = MagicMock(return_value=None)
+
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = member
+        payload.member.guild = guild
+        payload.message_id = 123456
+        payload.emoji = "🎮"
+
+        panel = _make_role_panel(panel_type="reaction")
+        item = _make_role_panel_item(emoji="🎮", role_id="111")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch(
+                "src.ui.role_panel_view.get_role_panel_item_by_emoji",
+                new_callable=AsyncMock,
+                return_value=item,
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                # エラーにならずに処理される
+                await handle_role_reaction(payload, "add")
+
+    @pytest.mark.asyncio
+    async def test_handles_forbidden_error(self) -> None:
+        """権限不足エラーをハンドルする。"""
+        role = MagicMock(spec=discord.Role)
+        role.name = "Test Role"
+
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.roles = []
+        member.add_roles = AsyncMock(
+            side_effect=discord.Forbidden(MagicMock(), "no permission")
+        )
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.get_role = MagicMock(return_value=role)
+
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = member
+        payload.member.guild = guild
+        payload.message_id = 123456
+        payload.emoji = "🎮"
+
+        panel = _make_role_panel(panel_type="reaction")
+        item = _make_role_panel_item(emoji="🎮", role_id="111")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch(
+                "src.ui.role_panel_view.get_role_panel_item_by_emoji",
+                new_callable=AsyncMock,
+                return_value=item,
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                # エラーにならずに処理される
+                await handle_role_reaction(payload, "add")
+
+    @pytest.mark.asyncio
+    async def test_handles_http_exception(self) -> None:
+        """HTTP エラーをハンドルする。"""
+        role = MagicMock(spec=discord.Role)
+        role.name = "Test Role"
+
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.roles = []
+        member.add_roles = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(), "error")
+        )
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.get_role = MagicMock(return_value=role)
+
+        payload = MagicMock(spec=discord.RawReactionActionEvent)
+        payload.member = member
+        payload.member.guild = guild
+        payload.message_id = 123456
+        payload.emoji = "🎮"
+
+        panel = _make_role_panel(panel_type="reaction")
+        item = _make_role_panel_item(emoji="🎮", role_id="111")
+
+        with (
+            patch("src.ui.role_panel_view.async_session") as mock_session,
+            patch(
+                "src.ui.role_panel_view.get_role_panel_item_by_emoji",
+                new_callable=AsyncMock,
+                return_value=item,
+            ),
+        ):
+            mock_db = AsyncMock()
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            with patch(
+                "src.services.db_service.get_role_panel_by_message_id",
+                new_callable=AsyncMock,
+                return_value=panel,
+            ):
+                # エラーにならずに処理される
+                await handle_role_reaction(payload, "add")
