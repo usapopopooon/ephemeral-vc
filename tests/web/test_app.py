@@ -2854,7 +2854,7 @@ class TestRolePanelCreateRoutes:
             },
         )
         assert response.status_code == 200
-        assert "Panel type must be 'button' or 'reaction'" in response.text
+        assert "Invalid panel type" in response.text
 
     async def test_create_missing_title(
         self, authenticated_client: AsyncClient

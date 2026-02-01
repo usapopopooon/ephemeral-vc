@@ -177,7 +177,7 @@ class RolePanelCreateModal(discord.ui.Modal, title="ロールパネル作成"):
         placeholder="例: 好きなロールを選んでください",
         style=discord.TextStyle.paragraph,
         required=False,
-        max_length=4096,
+        max_length=4000,  # Discord Modal TextInput limit (Embed limit is 4096)
     )
 
     def __init__(

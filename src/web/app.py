@@ -1316,7 +1316,7 @@ async def rolepanel_create_post(
     if panel_type not in ("button", "reaction"):
         return HTMLResponse(
             content=role_panel_create_page(
-                error="Panel type must be 'button' or 'reaction'",
+                error="Invalid panel type",
                 guild_id=guild_id,
                 channel_id=channel_id,
                 panel_type=panel_type,
