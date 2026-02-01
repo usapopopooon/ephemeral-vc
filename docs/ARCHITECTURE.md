@@ -32,6 +32,7 @@ src/
 │   ├── voice.py         # VC 自動作成・削除、/vc コマンドグループ
 │   ├── bump.py          # Bump リマインダー
 │   ├── sticky.py        # Sticky メッセージ
+│   ├── role_panel.py    # ロールパネル
 │   └── health.py        # ヘルスチェック (ハートビート)
 ├── core/
 │   ├── permissions.py   # Discord 権限ヘルパー
@@ -43,7 +44,8 @@ src/
 ├── services/
 │   └── db_service.py    # DB CRUD 操作 (ビジネスロジック)
 ├── ui/
-│   └── control_panel.py # コントロールパネル UI (View/Button/Select)
+│   ├── control_panel.py # コントロールパネル UI (View/Button/Select)
+│   └── role_panel_view.py # ロールパネル UI (View/Button/Modal)
 └── web/
     ├── app.py           # FastAPI Web 管理画面
     ├── email_service.py # メール送信サービス (SMTP)
@@ -55,13 +57,15 @@ tests/
 │   ├── test_voice.py
 │   ├── test_bump.py
 │   ├── test_sticky.py
+│   ├── test_role_panel.py
 │   └── test_health.py
 ├── database/
 │   ├── test_engine.py
 │   ├── test_models.py
 │   └── test_integration.py
 ├── ui/
-│   └── test_control_panel.py
+│   ├── test_control_panel.py
+│   └── test_role_panel_view.py
 └── web/
     ├── test_app.py
     └── test_email_service.py
@@ -172,6 +176,39 @@ class StickyMessage(Base):
     created_at: Mapped[datetime]
 ```
 
+### RolePanel
+ロールパネルの設定。
+
+```python
+class RolePanel(Base):
+    id: Mapped[int]                    # PK
+    guild_id: Mapped[str]              # Discord サーバー ID
+    channel_id: Mapped[str]            # パネルを設置するチャンネル ID
+    message_id: Mapped[str | None]     # パネルメッセージ ID
+    panel_type: Mapped[str]            # "button" or "reaction"
+    title: Mapped[str]                 # パネルタイトル
+    description: Mapped[str | None]    # パネル説明文
+    color: Mapped[int | None]          # Embed 色
+    remove_reaction: Mapped[bool]      # リアクション自動削除
+    created_at: Mapped[datetime]
+    # relationship: items -> RolePanelItem[]
+```
+
+### RolePanelItem
+ロールパネルのロールアイテム。
+
+```python
+class RolePanelItem(Base):
+    id: Mapped[int]                    # PK
+    panel_id: Mapped[int]              # FK -> RolePanel (CASCADE)
+    role_id: Mapped[str]               # 付与するロール ID
+    emoji: Mapped[str]                 # ボタン/リアクション用絵文字
+    label: Mapped[str | None]          # ボタンラベル (ボタン式のみ)
+    style: Mapped[str]                 # ボタンスタイル (primary/secondary/success/danger)
+    position: Mapped[int]              # 表示順序
+    # unique constraint: (panel_id, emoji)
+```
+
 ## 主要機能の設計
 
 ### 1. 一時 VC 機能 (`voice.py` + `control_panel.py`)
@@ -258,7 +295,50 @@ async def _schedule_repost(channel_id: str, delay: float):
     _pending_tasks[channel_id] = asyncio.create_task(_delayed_repost(...))
 ```
 
-### 4. Web 管理画面 (`web/app.py`)
+### 4. ロールパネル機能 (`role_panel.py` + `role_panel_view.py`)
+
+#### 概要
+ボタンまたはリアクションでロールを付与/解除できるパネルを作成する機能。
+
+#### パネルタイプ
+| タイプ | 説明 |
+|--------|------|
+| button | ボタンをクリックしてロールをトグル |
+| reaction | 絵文字リアクションでロールをトグル |
+
+#### フロー (ボタン式)
+1. `/rolepanel create button` → Modal でタイトル・説明入力 → Embed 送信
+2. `/rolepanel add @role 🎮 "ゲーマー"` → パネルにボタン追加
+3. ユーザーがボタンクリック → ロール付与/解除 (トグル)
+
+#### フロー (リアクション式)
+1. `/rolepanel create reaction` → Modal でタイトル・説明入力 → Embed 送信
+2. `/rolepanel add @role 🎮` → パネルにリアクション追加 (Bot が絵文字を付ける)
+3. ユーザーがリアクション → ロール付与、リアクション外す → 解除
+
+#### 永続 View 設計
+```python
+class RolePanelView(discord.ui.View):
+    def __init__(self, panel_id: int, items: list[RolePanelItem]):
+        super().__init__(timeout=None)  # 永続
+        self.panel_id = panel_id
+        for item in items:
+            self.add_item(RoleButton(panel_id, item))
+
+class RoleButton(discord.ui.Button):
+    # custom_id = f"role_panel:{panel_id}:{item_id}"
+```
+
+Bot 起動時に全パネルの View を登録:
+```python
+async def cog_load(self):
+    for panel in await get_all_role_panels(session):
+        items = await get_role_panel_items(session, panel.id)
+        view = RolePanelView(panel.id, items)
+        self.bot.add_view(view)
+```
+
+### 5. Web 管理画面 (`web/app.py`)
 
 #### 認証フロー
 1. 初回起動時: 環境変数の `ADMIN_EMAIL` / `ADMIN_PASSWORD` で管理者作成
@@ -281,10 +361,13 @@ async def _schedule_repost(channel_id: str, delay: float):
 | `/lobbies` | ロビー一覧 |
 | `/bump` | Bump 設定一覧 |
 | `/sticky` | Sticky メッセージ一覧 |
+| `/rolepanels` | ロールパネル一覧 |
+| `/rolepanels/new` | ロールパネル作成 |
+| `/rolepanels/{id}/delete` | ロールパネル削除 |
 | `/settings` | 設定画面 (パスワード変更等) |
 | `/forgot-password` | パスワードリセット |
 
-### 5. Graceful シャットダウン (`main.py`)
+### 6. Graceful シャットダウン (`main.py`)
 
 #### SIGTERM ハンドラ
 ```python
@@ -300,7 +383,7 @@ async def _shutdown_bot() -> None:
         await _bot.close()
 ```
 
-### 6. データベース接続設定 (`database/engine.py`)
+### 7. データベース接続設定 (`database/engine.py`)
 
 #### SSL 接続 (Heroku 対応)
 ```python

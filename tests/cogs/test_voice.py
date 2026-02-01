@@ -500,6 +500,69 @@ class TestHandleLobbyJoin:
             # コントロールパネルが送信される
             new_channel.send.assert_awaited_once()
 
+    async def test_copies_lobby_channel_overwrites(self) -> None:
+        """ロビーチャンネルの権限設定が新チャンネルにコピーされる。"""
+        cog = _make_cog()
+        member = _make_member(1)
+        channel = _make_channel(100)
+        channel.category = MagicMock(spec=discord.CategoryChannel)
+
+        # ロビーチャンネルの権限設定をモック
+        lobby_overwrites = {
+            MagicMock(spec=discord.Role): discord.PermissionOverwrite(connect=False),
+            MagicMock(spec=discord.Member): discord.PermissionOverwrite(connect=True),
+        }
+        channel.overwrites = lobby_overwrites
+
+        lobby = MagicMock()
+        lobby.id = 10
+        lobby.category_id = None
+        lobby.default_user_limit = 5
+
+        new_channel = _make_channel(200)
+        new_channel.send = AsyncMock(return_value=MagicMock(pin=AsyncMock()))
+        new_channel.set_permissions = AsyncMock()
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.create_voice_channel = AsyncMock(return_value=new_channel)
+        guild.default_role = MagicMock()
+        member.guild = guild
+        member.move_to = AsyncMock()
+
+        voice_session = _make_voice_session(channel_id="200", owner_id="1")
+
+        mock_factory, _ = _mock_async_session()
+        with (
+            patch("src.cogs.voice.async_session", mock_factory),
+            patch(
+                "src.cogs.voice.get_lobby_by_channel_id",
+                new_callable=AsyncMock,
+                return_value=lobby,
+            ),
+            patch(
+                "src.cogs.voice.create_voice_session",
+                new_callable=AsyncMock,
+                return_value=voice_session,
+            ),
+            patch(
+                "src.cogs.voice.add_voice_session_member",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.cogs.voice.create_control_panel_embed",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "src.cogs.voice.ControlPanelView",
+                return_value=MagicMock(),
+            ),
+        ):
+            await cog._handle_lobby_join(member, channel)
+
+            # VC 作成時にロビーの overwrites が渡される
+            call_kwargs = guild.create_voice_channel.call_args[1]
+            assert call_kwargs["overwrites"] == lobby_overwrites
+
     async def test_cleanup_on_move_failure(self) -> None:
         """move_to 失敗時にチャンネルと DB レコードをクリーンアップする。"""
         cog = _make_cog()

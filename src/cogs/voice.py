@@ -369,12 +369,14 @@ class VoiceCog(commands.Cog):
 
             # --- VC の作成 ---
             # チャンネル名は「ユーザー名's channel」形式
+            # ロビーチャンネルの権限設定をコピーして @everyone の接続拒否などを引き継ぐ
             channel_name = f"{member.display_name}'s channel"
             new_channel = await guild.create_voice_channel(
                 name=channel_name,
                 category=category,
                 user_limit=lobby.default_user_limit,
                 rtc_region=DEFAULT_RTC_REGION,  # リージョンを日本に固定
+                overwrites=channel.overwrites,  # ロビーの権限設定をコピー
             )
 
             # --- DB にセッション記録 ---

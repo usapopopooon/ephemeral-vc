@@ -42,6 +42,13 @@ Discord の一時ボイスチャンネル管理 Bot。ロビー VC に参加す�
 - **デバウンス方式**: 連続投稿時の負荷を軽減 (遅延秒数を設定可能)
 - **Bot 再起動対応**: DB から設定を復元して動作継続
 
+### ロールパネル機能
+- **ボタン式 / リアクション式**: 2つの入力方式から選択可能
+- **複数ロール対応**: 1パネルに複数のロールボタン/リアクションを設置
+- **トグル式動作**: クリックで付与、もう1回で解除
+- **永続 View**: Bot 再起動後もボタンが動作
+- **Web 管理画面連携**: パネルの作成・管理が可能
+
 ### Web 管理画面
 - **ダッシュボード**: ロビー、Bump 設定、Sticky メッセージの一覧表示
 - **認証機能**: メール / パスワードによるログイン
@@ -183,6 +190,16 @@ PostgreSQL と Bot が一緒に起動する。
 | `/sticky remove` | Sticky メッセージを削除 |
 | `/sticky status` | Sticky メッセージの設定状況を確認 |
 
+### ロールパネルコマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `/rolepanel create <type>` | パネルを作成 (type: button/reaction) |
+| `/rolepanel add <role> <emoji> [label]` | ロールボタン/リアクションを追加 |
+| `/rolepanel remove <emoji>` | ロールボタン/リアクションを削除 |
+| `/rolepanel delete` | パネルを削除 |
+| `/rolepanel list` | 設定済みパネル一覧 |
+
 ## コントロールパネル
 
 ロビーに参加して VC が作成されると、チャンネルにコントロールパネル Embed が送信される。オーナーのみがボタンを操作できる。
@@ -216,6 +233,7 @@ src/
 │   ├── voice.py         # VC 自動作成・削除、/vc コマンド
 │   ├── bump.py          # Bump リマインダー (/bump コマンド)
 │   ├── sticky.py        # Sticky メッセージ (/sticky コマンド)
+│   ├── role_panel.py    # ロールパネル (/rolepanel コマンド)
 │   └── health.py        # ハートビート死活監視
 ├── core/
 │   ├── permissions.py   # Discord 権限ヘルパー
@@ -227,7 +245,8 @@ src/
 ├── services/
 │   └── db_service.py    # DB CRUD 操作
 ├── ui/
-│   └── control_panel.py # コントロールパネル UI (View / Button / Select)
+│   ├── control_panel.py # コントロールパネル UI (View / Button / Select)
+│   └── role_panel_view.py # ロールパネル UI (View / Button / Modal)
 └── web/
     ├── app.py           # FastAPI Web 管理画面
     ├── email_service.py # メール送信サービス
