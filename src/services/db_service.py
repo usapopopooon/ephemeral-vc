@@ -46,6 +46,8 @@ from src.database.models import (
     BumpConfig,
     BumpReminder,
     Lobby,
+    RolePanel,
+    RolePanelItem,
     StickyMessage,
     VoiceSession,
     VoiceSessionMember,
@@ -943,3 +945,322 @@ async def get_all_sticky_messages(
     """
     result = await session.execute(select(StickyMessage))
     return list(result.scalars().all())
+
+
+# =============================================================================
+# RolePanel (ロールパネル) 操作
+# =============================================================================
+
+
+async def create_role_panel(
+    session: AsyncSession,
+    guild_id: str,
+    channel_id: str,
+    panel_type: str,
+    title: str,
+    description: str | None = None,
+    color: int | None = None,
+    remove_reaction: bool = False,
+) -> RolePanel:
+    """ロールパネルを作成する。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+        channel_id: パネルを送信するチャンネルの ID
+        panel_type: パネルの種類 ("button" または "reaction")
+        title: パネルのタイトル
+        description: パネルの説明文
+        color: Embed の色
+        remove_reaction: リアクション自動削除フラグ (リアクション式のみ)
+
+    Returns:
+        作成された RolePanel オブジェクト
+    """
+    panel = RolePanel(
+        guild_id=guild_id,
+        channel_id=channel_id,
+        panel_type=panel_type,
+        title=title,
+        description=description,
+        color=color,
+        remove_reaction=remove_reaction,
+    )
+    session.add(panel)
+    await session.commit()
+    await session.refresh(panel)
+    return panel
+
+
+async def get_role_panel(
+    session: AsyncSession,
+    panel_id: int,
+) -> RolePanel | None:
+    """パネル ID からロールパネルを取得する。
+
+    Args:
+        session: DB セッション
+        panel_id: パネルの ID
+
+    Returns:
+        見つかった RolePanel、なければ None
+    """
+    result = await session.execute(select(RolePanel).where(RolePanel.id == panel_id))
+    return result.scalar_one_or_none()
+
+
+async def get_role_panel_by_message_id(
+    session: AsyncSession,
+    message_id: str,
+) -> RolePanel | None:
+    """メッセージ ID からロールパネルを取得する。
+
+    ボタン/リアクションイベント時にパネルを特定するために使う。
+
+    Args:
+        session: DB セッション
+        message_id: Discord メッセージの ID
+
+    Returns:
+        見つかった RolePanel、なければ None
+    """
+    result = await session.execute(
+        select(RolePanel).where(RolePanel.message_id == message_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_role_panels_by_guild(
+    session: AsyncSession,
+    guild_id: str,
+) -> list[RolePanel]:
+    """サーバー内の全ロールパネルを取得する。
+
+    Args:
+        session: DB セッション
+        guild_id: Discord サーバーの ID
+
+    Returns:
+        RolePanel のリスト
+    """
+    result = await session.execute(
+        select(RolePanel).where(RolePanel.guild_id == guild_id)
+    )
+    return list(result.scalars().all())
+
+
+async def get_role_panels_by_channel(
+    session: AsyncSession,
+    channel_id: str,
+) -> list[RolePanel]:
+    """チャンネル内の全ロールパネルを取得する。
+
+    Args:
+        session: DB セッション
+        channel_id: Discord チャンネルの ID
+
+    Returns:
+        RolePanel のリスト
+    """
+    result = await session.execute(
+        select(RolePanel).where(RolePanel.channel_id == channel_id)
+    )
+    return list(result.scalars().all())
+
+
+async def get_all_role_panels(
+    session: AsyncSession,
+) -> list[RolePanel]:
+    """全てのロールパネルを取得する。
+
+    Bot 起動時に永続 View を復元するために使う。
+
+    Args:
+        session: DB セッション
+
+    Returns:
+        全 RolePanel のリスト
+    """
+    result = await session.execute(select(RolePanel))
+    return list(result.scalars().all())
+
+
+async def update_role_panel(
+    session: AsyncSession,
+    panel: RolePanel,
+    *,
+    message_id: str | None = None,
+    title: str | None = None,
+    description: str | None = None,
+    color: int | None = None,
+) -> RolePanel:
+    """ロールパネルを更新する。
+
+    None のフィールドは変更しない。
+
+    Args:
+        session: DB セッション
+        panel: 更新対象の RolePanel
+        message_id: 新しいメッセージ ID
+        title: 新しいタイトル
+        description: 新しい説明文
+        color: 新しい色
+
+    Returns:
+        更新後の RolePanel
+    """
+    if message_id is not None:
+        panel.message_id = message_id
+    if title is not None:
+        panel.title = title
+    if description is not None:
+        panel.description = description
+    if color is not None:
+        panel.color = color
+
+    await session.commit()
+    await session.refresh(panel)
+    return panel
+
+
+async def delete_role_panel(
+    session: AsyncSession,
+    panel_id: int,
+) -> bool:
+    """ロールパネルを削除する。
+
+    関連する RolePanelItem も CASCADE で削除される。
+
+    Args:
+        session: DB セッション
+        panel_id: 削除するパネルの ID
+
+    Returns:
+        削除できたら True、見つからなければ False
+    """
+    result = await session.execute(select(RolePanel).where(RolePanel.id == panel_id))
+    panel = result.scalar_one_or_none()
+    if panel:
+        await session.delete(panel)
+        await session.commit()
+        return True
+    return False
+
+
+# =============================================================================
+# RolePanelItem (ロールパネルアイテム) 操作
+# =============================================================================
+
+
+async def add_role_panel_item(
+    session: AsyncSession,
+    panel_id: int,
+    role_id: str,
+    emoji: str,
+    label: str | None = None,
+    style: str = "secondary",
+) -> RolePanelItem:
+    """ロールパネルにアイテム (ロール) を追加する。
+
+    Args:
+        session: DB セッション
+        panel_id: パネルの ID
+        role_id: 付与するロールの Discord ID
+        emoji: ボタン/リアクションに使用する絵文字
+        label: ボタンのラベル (ボタン式のみ)
+        style: ボタンのスタイル
+
+    Returns:
+        作成された RolePanelItem
+    """
+    # 現在の最大 position を取得
+    result = await session.execute(
+        select(RolePanelItem)
+        .where(RolePanelItem.panel_id == panel_id)
+        .order_by(RolePanelItem.position.desc())
+    )
+    items = list(result.scalars().all())
+    next_position = items[0].position + 1 if items else 0
+
+    item = RolePanelItem(
+        panel_id=panel_id,
+        role_id=role_id,
+        emoji=emoji,
+        label=label,
+        style=style,
+        position=next_position,
+    )
+    session.add(item)
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+async def get_role_panel_items(
+    session: AsyncSession,
+    panel_id: int,
+) -> list[RolePanelItem]:
+    """パネルに設定されたロールアイテムを取得する。
+
+    position 順にソートして返す。
+
+    Args:
+        session: DB セッション
+        panel_id: パネルの ID
+
+    Returns:
+        RolePanelItem のリスト (position 順)
+    """
+    result = await session.execute(
+        select(RolePanelItem)
+        .where(RolePanelItem.panel_id == panel_id)
+        .order_by(RolePanelItem.position)
+    )
+    return list(result.scalars().all())
+
+
+async def get_role_panel_item_by_emoji(
+    session: AsyncSession,
+    panel_id: int,
+    emoji: str,
+) -> RolePanelItem | None:
+    """絵文字からロールパネルアイテムを取得する。
+
+    Args:
+        session: DB セッション
+        panel_id: パネルの ID
+        emoji: 検索する絵文字
+
+    Returns:
+        見つかった RolePanelItem、なければ None
+    """
+    result = await session.execute(
+        select(RolePanelItem).where(
+            RolePanelItem.panel_id == panel_id,
+            RolePanelItem.emoji == emoji,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def remove_role_panel_item(
+    session: AsyncSession,
+    panel_id: int,
+    emoji: str,
+) -> bool:
+    """ロールパネルからアイテムを削除する。
+
+    Args:
+        session: DB セッション
+        panel_id: パネルの ID
+        emoji: 削除するアイテムの絵文字
+
+    Returns:
+        削除できたら True、見つからなければ False
+    """
+    item = await get_role_panel_item_by_emoji(session, panel_id, emoji)
+    if item:
+        await session.delete(item)
+        await session.commit()
+        return True
+    return False

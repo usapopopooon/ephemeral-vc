@@ -611,3 +611,177 @@ class StickyMessage(Base):
             f"<StickyMessage(channel_id={self.channel_id}, "
             f"guild_id={self.guild_id}, title={self.title})>"
         )
+
+
+class RolePanel(Base):
+    """ロールパネルの設定テーブル。
+
+    ボタンまたはリアクションをクリックしてロールを付与/解除できるパネル。
+    1つのパネルに複数のロールボタン/リアクションを設定可能。
+
+    Attributes:
+        id (int): 自動採番の主キー。
+        guild_id (str): Discord サーバーの ID。インデックス付き。
+        channel_id (str): パネルを送信したチャンネルの ID。
+        message_id (str | None): パネルメッセージの ID。
+        panel_type (str): パネルの種類 ("button" または "reaction")。
+        title (str): パネルのタイトル。
+        description (str | None): パネルの説明文。
+        color (int | None): Embed の色 (16進数の整数値)。
+        remove_reaction (bool): リアクション自動削除フラグ (リアクション式のみ)。
+            True の場合、ユーザーがリアクションするとロールをトグルし、
+            リアクションを自動削除してカウントを 1 に保つ。
+        created_at (datetime): 作成日時 (UTC)。
+        items (list[RolePanelItem]): このパネルに設定されたロール一覧。
+
+    Notes:
+        - テーブル名: ``role_panels``
+        - panel_type で動作が切り替わる (ボタン式/リアクション式)
+        - items はカスケード削除設定 (パネル削除時にアイテムも削除)
+        - remove_reaction=True: リアクション追加でトグル、リアクション自動削除
+        - remove_reaction=False: リアクション追加で付与、削除で解除 (通常動作)
+
+    Examples:
+        パネル作成::
+
+            panel = RolePanel(
+                guild_id="123456789",
+                channel_id="987654321",
+                panel_type="button",
+                title="ロール選択",
+                description="好きなロールを選んでください",
+            )
+
+    See Also:
+        - :class:`RolePanelItem`: パネルに設定されたロール
+        - :mod:`src.cogs.role_panel`: ロールパネル Cog
+    """
+
+    __tablename__ = "role_panels"
+
+    # id: 自動採番の主キー
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # guild_id: Discord サーバーの ID
+    guild_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    # channel_id: パネルを送信したチャンネルの ID
+    channel_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    # message_id: パネルメッセージの ID (送信後に設定)
+    message_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+
+    # panel_type: パネルの種類 ("button" または "reaction")
+    panel_type: Mapped[str] = mapped_column(String, nullable=False)
+
+    # title: パネルのタイトル
+    title: Mapped[str] = mapped_column(String, nullable=False)
+
+    # description: パネルの説明文
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # color: Embed の色 (16進数の整数値)
+    color: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # remove_reaction: リアクション自動削除フラグ
+    # True: リアクション追加でトグル、リアクション自動削除 (カウント常に 1)
+    # False: リアクション追加で付与、削除で解除 (通常動作)
+    remove_reaction: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+
+    # created_at: 作成日時 (UTC)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    # --- リレーション ---
+    # このパネルに設定されたロール一覧
+    items: Mapped[list["RolePanelItem"]] = relationship(
+        "RolePanelItem", back_populates="panel", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        """デバッグ用の文字列表現。"""
+        return (
+            f"<RolePanel(id={self.id}, guild_id={self.guild_id}, "
+            f"title={self.title}, type={self.panel_type})>"
+        )
+
+
+class RolePanelItem(Base):
+    """ロールパネルに設定されたロールのテーブル。
+
+    パネルに追加された各ロールの設定を保存する。
+    ボタン式の場合はラベルとスタイル、リアクション式の場合は絵文字を使用。
+
+    Attributes:
+        id (int): 自動採番の主キー。
+        panel_id (int): 親パネルへの外部キー。カスケード削除設定。
+        role_id (str): 付与するロールの Discord ID。
+        emoji (str): ボタン/リアクションに使用する絵文字。
+        label (str | None): ボタンのラベル (ボタン式のみ)。
+        style (str): ボタンのスタイル ("primary", "secondary", "success", "danger")。
+        position (int): 表示順序。
+
+    Notes:
+        - テーブル名: ``role_panel_items``
+        - (panel_id, emoji) でユニーク制約 (同じ絵文字の重複防止)
+        - RolePanel 削除時に自動削除 (CASCADE)
+
+    Examples:
+        ロール追加::
+
+            item = RolePanelItem(
+                panel_id=1,
+                role_id="111222333",
+                emoji="🎮",
+                label="ゲーマー",
+                style="primary",
+                position=0,
+            )
+
+    See Also:
+        - :class:`RolePanel`: 親パネル
+        - :func:`src.services.db_service.add_role_panel_item`: 追加関数
+    """
+
+    __tablename__ = "role_panel_items"
+    __table_args__ = (
+        # 同じパネルに同じ絵文字は 1 回だけ
+        UniqueConstraint("panel_id", "emoji", name="uq_panel_emoji"),
+    )
+
+    # id: 自動採番の主キー
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # panel_id: 親パネルへの外部キー
+    panel_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("role_panels.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # role_id: 付与するロールの Discord ID
+    role_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    # emoji: ボタン/リアクションに使用する絵文字
+    emoji: Mapped[str] = mapped_column(String, nullable=False)
+
+    # label: ボタンのラベル (ボタン式のみ、リアクション式は None)
+    label: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # style: ボタンのスタイル (ボタン式のみ)
+    style: Mapped[str] = mapped_column(String, default="secondary", nullable=False)
+
+    # position: 表示順序
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # --- リレーション ---
+    # このアイテムが属する親パネル
+    panel: Mapped["RolePanel"] = relationship("RolePanel", back_populates="items")
+
+    def __repr__(self) -> str:
+        """デバッグ用の文字列表現。"""
+        return (
+            f"<RolePanelItem(id={self.id}, panel_id={self.panel_id}, "
+            f"role_id={self.role_id}, emoji={self.emoji})>"
+        )

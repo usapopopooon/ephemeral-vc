@@ -103,12 +103,13 @@ class TestSetupHook:
         ):
             await bot.setup_hook()
 
-        assert bot.load_extension.await_count == 5
+        assert bot.load_extension.await_count == 6
         bot.load_extension.assert_any_await("src.cogs.voice")
         bot.load_extension.assert_any_await("src.cogs.admin")
         bot.load_extension.assert_any_await("src.cogs.health")
         bot.load_extension.assert_any_await("src.cogs.bump")
         bot.load_extension.assert_any_await("src.cogs.sticky")
+        bot.load_extension.assert_any_await("src.cogs.role_panel")
 
     @patch("src.bot.async_session")
     async def test_syncs_commands(self, mock_session_factory: MagicMock) -> None:
