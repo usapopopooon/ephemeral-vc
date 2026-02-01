@@ -188,6 +188,17 @@ class StickyMessage(Base):
 - **custom_id**: `{action}:{voice_session_id}` 形式で識別
 - **オーナー権限チェック**: 各ボタンの callback で `voice_session.owner_id` と比較
 
+#### パネルボタン (4行構成)
+- Row 1: 名前変更、人数制限、ビットレート、リージョン
+- Row 2: ロック、非表示、年齢制限、譲渡
+- Row 3: キック
+- Row 4: ブロック、許可、カメラ禁止、カメラ許可
+
+#### カメラ禁止機能
+- `PermissionOverwrite(stream=False)` で配信権限を拒否
+- Discord の `stream` 権限はカメラと画面共有の両方を制御
+- 解除時は `PermissionOverwrite(stream=None)` で上書きを削除
+
 #### パネル更新方式
 - **`refresh_panel_embed()`**: 既存メッセージを `msg.edit()` で更新 (通常の設定変更時)
 - **`repost_panel()`**: 旧パネル削除 → 新パネル送信 (オーナー譲渡時、`/panel` コマンド)
@@ -495,10 +506,12 @@ def async_database_url(self) -> str:
 ## CI/CD
 
 ### GitHub Actions
+- cspell (スペルチェック)
+- JSON / YAML / TOML lint (構文チェック)
 - Ruff format (フォーマットチェック)
 - Ruff check (リンター)
 - mypy 型チェック
-- pytest + Codecov
+- pytest + Codecov (カバレッジ 98%+)
 
 ### Heroku デプロイ
 - `main` ブランチへの push でテストが実行される
